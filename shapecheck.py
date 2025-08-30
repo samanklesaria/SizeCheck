@@ -123,14 +123,15 @@ def check_shape(tensor: Any, dim_names: List[str], _dims_: Dict[str, int], var_n
         )
 
     expected_dims = [_dims_.get(dim_name, None) for dim_name in dim_names]
-    for expected_dim, actual_dim, dim_name in zip(expected_dims, tensor.shape, dim_names):
-        if expected_dim is not None:
+    for expected_dim_info, actual_dim, dim_name in zip(expected_dims, tensor.shape, dim_names):
+        if expected_dim_info is not None:
+            expected_dim, original_var = expected_dim_info
             if actual_dim != expected_dim:
                 raise AssertionError(
-                    f"Shape mismatch for {var_name} dimension {dim_name}: expected {expected_dim}, got {actual_dim}"
+                    f"Shape mismatch for {var_name} dimension {dim_name}: expected {expected_dim} (from {original_var}), got {actual_dim}"
                 )
         else:
-            _dims_[dim_name] = actual_dim
+            _dims_[dim_name] = (actual_dim, var_name)
 
 def shapecheck(func):
     """
