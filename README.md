@@ -20,19 +20,19 @@ import torch
 from shapecheck import shapecheck
 
 @shapecheck
-def matrix_multiply(A_nk, B_km):
+def matrix_multiply(A_NK, B_KM):
     """Matrix multiplication with automatic shape checking."""
-    result_nm = torch.matmul(A_nk, B_km)
-    return result_nm
+    result_NM = torch.matmul(A_NK, B_KM)
+    return result_NM
 
 # This works fine
-A = torch.randn(3, 4)  # n=3, k=4
-B = torch.randn(4, 5)  # k=4, m=5
+A = torch.randn(3, 4)  # N=3, K=4
+B = torch.randn(4, 5)  # K=4, M=5
 result = matrix_multiply(A, B)  # Shape: (3, 5)
 
 # This raises an AssertionError
 A = torch.randn(3, 4)
-B = torch.randn(5, 6)  # Wrong! k dimensions don't match
+B = torch.randn(5, 6)  # Wrong! K dimensions don't match
 result = matrix_multiply(A, B)  # AssertionError!
 ```
 
@@ -41,10 +41,10 @@ result = matrix_multiply(A, B)  # AssertionError!
 Variable names should follow the pattern: `name_dimensions`
 
 Each character in the dimensions suffix represents one dimension:
-- `tensor_nk`: 2D tensor with dimensions n × k
-- `data_bchw`: 4D tensor with dimensions b × c × h × w
+- `tensor_NK`: 2D tensor with dimensions N × K
+- `data_BCHW`: 4D tensor with dimensions B × C × H × W
 
-Only single letters are supported: `nk`, `bchw`, `ij`
+Only single capital letters are supported: `NK`, `BCHW`, `IJ`
 
 ## What Gets Checked
 

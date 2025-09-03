@@ -8,7 +8,7 @@ def extract_shape_dims(name: str) -> List[str]:
     if len(parts) < 2:
         return []
     shape_part = parts[-1]
-    if shape_part.isalpha():
+    if shape_part.isalpha() and shape_part.isupper():
         return list(shape_part)
     else:
         return []
@@ -143,7 +143,7 @@ def shapecheck(func):
     Variable naming convention:
     - Variables with underscores in their names are checked
     - The suffix after the last underscore indicates the shape
-    - Single letters are treated as separate dimensions: 'nk' -> ['n', 'k']
+    - Single capital letters are treated as separate dimensions: 'NK' -> ['N', 'K']
 
     Args:
         func: Function to decorate
@@ -153,9 +153,9 @@ def shapecheck(func):
 
     Examples:
         @shapecheck
-        def matrix_multiply(A_nk, B_km):
-            result_nm = torch.matmul(A_nk, B_km)
-            return result_nm
+        def matrix_multiply(A_NK, B_KM):
+            result_NM = torch.matmul(A_NK, B_KM)
+            return result_NM
 
     """
     tree = ast.parse(inspect.getsource(func))
