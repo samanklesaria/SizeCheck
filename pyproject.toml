@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shapecheck"
+version = "0.1.0"
+description = "Runtime shape validation for size-annotated PyTorch code"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ShapeCheck Contributors"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "torch>=1.8.0",
+    "pytest>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/samanklesaria/shapecheck"
+Repository = "https://github.com/samanklesaria/shapecheck"
+Issues = "https://github.com/samanklesaria/shapecheck/issues"
+
+[tool.setuptools]
+py-modules = ["shapecheck"]
