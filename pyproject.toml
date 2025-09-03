@@ -8,9 +8,6 @@ version = "0.1.0"
 description = "Runtime shape validation for size-annotated PyTorch code"
 readme = "README.md"
 license = {text = "MIT"}
-authors = [
-    {name = "ShapeCheck Contributors"}
-]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

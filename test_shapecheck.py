@@ -19,6 +19,21 @@ def transformer_attention(queries_BSH, keys_BSH, values_BSH):
     attended_values_BSH = torch.matmul(attention_weights_BSS, values_BSH)
     return attended_values_BSH
 
+@shapecheck
+def destructuring_function():
+    """Test function with destructuring assignments."""
+    # Create some tensors to destructure
+    tensor1_NK = torch.randn(3, 4)
+    tensor2_KM = torch.randn(4, 5)
+
+    # Destructuring assignment - both should be checked
+    result1_NM, result2_KN = torch.matmul(tensor1_NK, tensor2_KM), tensor1_NK.T
+
+    # List destructuring
+    [final1_NM, final2_KN] = [result1_NM, result2_KN]
+
+    return final1_NM, final2_KN
+
 def test_matrix_operations():
     """Test matrix operations."""
     print("1. Matrix operations...")
@@ -33,6 +48,28 @@ def test_transformer_attention():
     keys_BSH = torch.randn(batch, seq_len, hidden)
     values_BSH = torch.randn(batch, seq_len, hidden)
     transformer_attention(queries_BSH, keys_BSH, values_BSH)
+
+def test_destructuring_assignments():
+    """Test destructuring assignments with shape checking."""
+    destructuring_function()
+
+class LinearLayer:
+    """Test class with shape-checked method."""
+
+    @shapecheck
+    def forward(self, input_BH, weight_HO):
+        """Forward pass with shape checking."""
+        output_BO = torch.matmul(input_BH, weight_HO)
+        return output_BO
+
+def test_class_method():
+    """Test class method with @shapecheck decorator."""
+    layer = LinearLayer()
+    input_BH = torch.randn(2, 3)
+    weight_HO = torch.randn(3, 4)
+    output = layer.forward(input_BH, weight_HO)
+    assert output.shape == (2, 4)
+
 
 @pytest.mark.xfail(reason="Expected dimension mismatch", raises=AssertionError)
 def test_dimension_mismatch():

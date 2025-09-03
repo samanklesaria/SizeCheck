@@ -1,5 +1,6 @@
 import ast
 import inspect
+import textwrap
 from typing import Dict, List, Any
 
 def extract_shape_dims(name: str) -> List[str]:
@@ -41,27 +42,42 @@ def create_check_shape_call(var_name: str, dims: List[str]) -> ast.stmt:
 class ShapeCheckTransformer(ast.NodeTransformer):
     """AST transformer that injects shape checking code."""
 
+    def extract_names_from_target(self, target):
+        """Recursively extract all names from assignment targets."""
+        if isinstance(target, ast.Name):
+            return [target.id]
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            names = []
+            for elt in target.elts:
+                names.extend(self.extract_names_from_target(elt))
+            return names
+        else:
+            return []
+
     def visit_Assign(self, node: ast.Assign) -> Any:
         """Transform assignment nodes to add shape checks."""
         node = self.generic_visit(node)
         new_nodes = [node]
         for target in node.targets:
-            if isinstance(target, ast.Name):
-                dims = extract_shape_dims(target.id)
+            names = self.extract_names_from_target(target)
+            for name in names:
+                dims = extract_shape_dims(name)
                 if dims:
-                    check_node = create_check_shape_call(target.id, dims)
+                    check_node = create_check_shape_call(name, dims)
                     new_nodes.append(check_node)
         return new_nodes if len(new_nodes) > 1 else node
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> Any:
         """Handle annotated assignments."""
         node = self.generic_visit(node)
-        if isinstance(node.target, ast.Name):
-            dims = extract_shape_dims(node.target.id)
+        names = self.extract_names_from_target(node.target)
+        check_nodes = []
+        for name in names:
+            dims = extract_shape_dims(name)
             if dims:
-                check_node = create_check_shape_call(node.target.id, dims)
-                return [node, check_node]
-        return node
+                check_node = create_check_shape_call(name, dims)
+                check_nodes.append(check_node)
+        return [node] + check_nodes if check_nodes else node
 
     def visit_AugAssign(self, node: ast.AugAssign) -> Any:
         """Handle augmented assignments (+=, -=, etc.)."""
@@ -158,7 +174,8 @@ def shapecheck(func):
             return result_NM
 
     """
-    tree = ast.parse(inspect.getsource(func))
+    source = textwrap.dedent(inspect.getsource(func))
+    tree = ast.parse(source)
     tree.body[0].decorator_list.pop(0)
     transformer = ShapeCheckTransformer()
     new_tree = transformer.visit(tree)
