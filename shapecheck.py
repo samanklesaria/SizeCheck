@@ -1,7 +1,7 @@
 import ast
 import inspect
 import textwrap
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Union, Tuple
 
 def extract_shape_dims(name: str) -> List[str]:
     """Extract shape dimensions from annotated variable name."""
@@ -14,10 +14,10 @@ def extract_shape_dims(name: str) -> List[str]:
     else:
         return []
 
-def create_check_shape_call(var_name: str, dims: List[str]) -> ast.stmt:
+def create_check_shape_call(var_name: str, dims: List[str], lineno: int = 1) -> ast.stmt:
     """Create a call to the shape checking function."""
     dims_list = ast.List(elts=[ast.Constant(value=dim) for dim in dims], ctx=ast.Load())
-    dims_list.lineno = 1
+    dims_list.lineno = lineno
     dims_list.col_offset = 0
 
     expr = ast.Expr(
@@ -32,10 +32,10 @@ def create_check_shape_call(var_name: str, dims: List[str]) -> ast.stmt:
             keywords=[]
         )
     )
-    # Set line numbers to avoid compilation errors
-    expr.lineno = 1
+    # Set line numbers to match original source
+    expr.lineno = lineno
     expr.col_offset = 0
-    expr.value.lineno = 1
+    expr.value.lineno = lineno
     expr.value.col_offset = 0
     return expr
 
@@ -54,55 +54,56 @@ class ShapeCheckTransformer(ast.NodeTransformer):
         else:
             return []
 
-    def visit_Assign(self, node: ast.Assign) -> Any:
+    def visit_Assign(self, node: ast.Assign) -> Union[ast.Assign, List[ast.stmt]]:
         """Transform assignment nodes to add shape checks."""
         node = self.generic_visit(node)
-        new_nodes = [node]
+        new_nodes: List[ast.stmt] = [node]
         for target in node.targets:
             names = self.extract_names_from_target(target)
             for name in names:
                 dims = extract_shape_dims(name)
                 if dims:
-                    check_node = create_check_shape_call(name, dims)
+                    check_node = create_check_shape_call(name, dims, node.lineno)
                     new_nodes.append(check_node)
         return new_nodes if len(new_nodes) > 1 else node
 
-    def visit_AnnAssign(self, node: ast.AnnAssign) -> Any:
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> Union[ast.AnnAssign, List[ast.stmt]]:
         """Handle annotated assignments."""
         node = self.generic_visit(node)
         names = self.extract_names_from_target(node.target)
-        check_nodes = []
+        check_nodes: List[ast.stmt] = []
         for name in names:
             dims = extract_shape_dims(name)
             if dims:
-                check_node = create_check_shape_call(name, dims)
+                check_node = create_check_shape_call(name, dims, node.lineno)
                 check_nodes.append(check_node)
         return [node] + check_nodes if check_nodes else node
 
-    def visit_AugAssign(self, node: ast.AugAssign) -> Any:
+    def visit_AugAssign(self, node: ast.AugAssign) -> Union[ast.AugAssign, List[ast.stmt]]:
         """Handle augmented assignments (+=, -=, etc.)."""
         node = self.generic_visit(node)
         if isinstance(node.target, ast.Name):
             dims = extract_shape_dims(node.target.id)
             if dims:
-                check_node = create_check_shape_call(node.target.id, dims)
-                return [node, check_node]
+                check_node = create_check_shape_call(node.target.id, dims, node.lineno)
+                result: List[ast.stmt] = [node, check_node]
+                return result
         return node
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Transform function definition to add argument checks."""
         # Collect shape-annotated arguments
         dims_assign = ast.Assign(targets=[ast.Name(id='_dims_', ctx=ast.Store())], value=ast.Dict())
-        dims_assign.lineno = 1
+        dims_assign.lineno = node.lineno
         dims_assign.col_offset = 0
-        arg_checks = [dims_assign]
+        arg_checks: List[ast.stmt] = [dims_assign]
 
         # Check regular arguments
         for arg in node.args.args:
             if '_' in arg.arg:
                 dims = extract_shape_dims(arg.arg)
                 if dims:
-                    check_node = create_check_shape_call(arg.arg, dims)
+                    check_node = create_check_shape_call(arg.arg, dims, node.lineno)
                     arg_checks.append(check_node)
 
         # Check keyword-only arguments
@@ -110,7 +111,7 @@ class ShapeCheckTransformer(ast.NodeTransformer):
             if '_' in arg.arg:
                 dims = extract_shape_dims(arg.arg)
                 if dims:
-                    check_node = create_check_shape_call(arg.arg, dims)
+                    check_node = create_check_shape_call(arg.arg, dims, node.lineno)
                     arg_checks.append(check_node)
 
         # Transform the function body
@@ -128,7 +129,7 @@ class ShapeCheckTransformer(ast.NodeTransformer):
         return node
 
 
-def check_shape(tensor: Any, dim_names: List[str], _dims_: Dict[str, int], var_name: str) -> None:
+def check_shape(tensor: Any, dim_names: List[str], _dims_: Dict[str, Tuple[int, str]], var_name: str) -> None:
     """Runtime shape checking function."""
     if not hasattr(tensor, 'shape'):
         return  # Not a tensor, skip
@@ -175,13 +176,18 @@ def shapecheck(func):
 
     """
     source = textwrap.dedent(inspect.getsource(func))
+    original_filename = inspect.getfile(func)
+    original_lineno = inspect.getsourcelines(func)[1]
     tree = ast.parse(source)
-    tree.body[0].decorator_list.pop(0)
+    if tree.body and isinstance(tree.body[0], ast.FunctionDef):
+        tree.body[0].decorator_list.pop(0)
+    # Adjust line numbers in the parsed tree
+    ast.increment_lineno(tree, original_lineno - 1)
     transformer = ShapeCheckTransformer()
     new_tree = transformer.visit(tree)
     ast.fix_missing_locations(new_tree)
     # print(ast.dump(new_tree, indent=4))
-    code = compile(new_tree, filename=f"<shapecheck:{func.__name__}>", mode='exec')
+    code = compile(new_tree, filename=original_filename, mode='exec')
     namespace = func.__globals__.copy()
     namespace['check_shape'] = check_shape
     exec(code, namespace)
