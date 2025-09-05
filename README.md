@@ -1,10 +1,10 @@
 # ShapeCheck: Runtime Shape Validation for Size-Annotated PyTorch Code
 
-A Python decorator that automatically adds runtime shape checking to PyTorch functions based on size-annotated variable names using AST transformation.
+The `ShapeCheck` package provides a Python decorator that automatically adds runtime shape checking to python functions based on size-annotated variable names using AST transformation.
 
 ## Overview
 
-When writing PyTorch code, it's common to use naming conventions that indicate tensor shapes, as in this [Medium post](https://medium.com/@NoamShazeer/shape-suffixes-good-coding-style-f836e72e24fd). For example, if a tensor `weights` has shape `N × K`, you might name the variable `weights_NK`. This library automatically validates that tensors match their annotated shapes at runtime by analyzing and modifying your function's Abstract Syntax Tree (AST).
+When writing PyTorch or NumPy code, it's common to use naming conventions that indicate tensor shapes, as in this [Medium post](https://medium.com/@NoamShazeer/shape-suffixes-good-coding-style-f836e72e24fd). For example, if a tensor `weights` has shape `N × K`, you might name the variable `weights_NK`. This library automatically validates that tensors match their annotated shapes at runtime by analyzing and modifying your function's Abstract Syntax Tree (AST).
 
 ## Key Features
 

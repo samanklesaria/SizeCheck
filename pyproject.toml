@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shapecheck"
 version = "0.1.0"
-description = "Runtime shape validation for size-annotated PyTorch code"
+description = "Runtime shape validation for size-annotated Python code"
 readme = "README.md"
 license = {text = "MIT"}
 classifiers = [
