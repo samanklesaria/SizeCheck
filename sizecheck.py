@@ -1,9 +1,19 @@
+"""
+This library provides `sizecheck`, a macro that automatically adds runtime shape checking to Julia functions based on size-annotated variable names.
+
+When writing Julia code, it's common to use naming conventions that indicate
+tensor shapes, as in this [Medium
+post](https://medium.com/@NoamShazeer/shape-suffixes-good-coding-style-f836e72e24fd).
+For example, if a tensor `weights` has shape `N × K`, you might name the
+variable `weights_NK`. This macro adds validation checks that tensors match
+their annotated shapes at runtime.
+"""
 import ast
 import inspect
 import textwrap
 from typing import Dict, List, Any, Union
 
-def extract_shape_dims(name: str) -> List[str]:
+def _extract_shape_dims(name: str) -> List[str]:
     """Extract shape dimensions from annotated variable name."""
     parts = name.split('_')
     if len(parts) < 2:
@@ -14,7 +24,7 @@ def extract_shape_dims(name: str) -> List[str]:
     else:
         return []
 
-def create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[str, str], lineno: int = 1) -> List[ast.stmt]:
+def _create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[str, str], lineno: int = 1) -> List[ast.stmt]:
     """Create statements for shape checking and dimension variable assignment."""
     statements = []
 
@@ -107,7 +117,7 @@ def create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[str
 
     return statements
 
-class SizeCheckTransformer(ast.NodeTransformer):
+class _SizeCheckTransformer(ast.NodeTransformer):
     """AST transformer that injects shape checking code."""
 
     def __init__(self):
@@ -132,12 +142,12 @@ class SizeCheckTransformer(ast.NodeTransformer):
         for target in node.targets:
             names = self.extract_names_from_target(target)
             for name in names:
-                dims = extract_shape_dims(name)
+                dims = _extract_shape_dims(name)
                 if dims:
                     for dim in dims:
                         if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = name
-                    check_nodes = create_check_shape_call(name, dims, self.first_vars, node.lineno)
+                    check_nodes = _create_check_shape_call(name, dims, self.first_vars, node.lineno)
                     new_nodes.extend(check_nodes)
         if len(new_nodes) > 1:
             return new_nodes
@@ -150,12 +160,12 @@ class SizeCheckTransformer(ast.NodeTransformer):
         names = self.extract_names_from_target(node.target)
         check_nodes: List[ast.stmt] = []
         for name in names:
-            dims = extract_shape_dims(name)
+            dims = _extract_shape_dims(name)
             if dims:
                 for dim in dims:
                     if dim not in self.first_vars and not dim.isdigit():
                         self.first_vars[dim] = name
-                check_nodes.extend(create_check_shape_call(name, dims, self.first_vars, node.lineno))
+                check_nodes.extend(_create_check_shape_call(name, dims, self.first_vars, node.lineno))
         if check_nodes:
             return [node] + check_nodes
         else:
@@ -165,12 +175,12 @@ class SizeCheckTransformer(ast.NodeTransformer):
         """Handle augmented assignments (+=, -=, etc.)."""
         node = self.generic_visit(node)  # type: ignore
         if isinstance(node.target, ast.Name):
-            dims = extract_shape_dims(node.target.id)
+            dims = _extract_shape_dims(node.target.id)
             if dims:
                 for dim in dims:
                     if dim not in self.first_vars and not dim.isdigit():
                         self.first_vars[dim] = node.target.id
-                check_nodes = create_check_shape_call(node.target.id, dims, self.first_vars, node.lineno)
+                check_nodes = _create_check_shape_call(node.target.id, dims, self.first_vars, node.lineno)
                 return [node] + check_nodes
         return node
 
@@ -181,22 +191,22 @@ class SizeCheckTransformer(ast.NodeTransformer):
         # Check regular arguments
         for arg in node.args.args:
             if '_' in arg.arg:
-                dims = extract_shape_dims(arg.arg)
+                dims = _extract_shape_dims(arg.arg)
                 if dims:
                     for dim in dims:
                         if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = arg.arg
-                    arg_checks.extend(create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
+                    arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
 
         # Check keyword-only arguments
         for arg in node.args.kwonlyargs:
             if '_' in arg.arg:
-                dims = extract_shape_dims(arg.arg)
+                dims = _extract_shape_dims(arg.arg)
                 if dims:
                     for dim in dims:
                         if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = arg.arg
-                    arg_checks.extend(create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
+                    arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
 
         # Transform the function body
         new_body = []
@@ -220,14 +230,14 @@ def _check_dimension_count(tensor: Any, expected_ndims: int, var_name: str) -> N
             f"Shape dimension mismatch for {var_name}: expected {expected_ndims} dimensions, got {len(tensor.shape)}"
         )
 
-def check_dimension(actual_dim: int, expected_dim: int, dim_name: str, var_name: str, first_var: str) -> None:
+def _check_dimension(actual_dim: int, expected_dim: int, dim_name: str, var_name: str, first_var: str) -> None:
     """Runtime dimension checking function."""
     if actual_dim != expected_dim:
         raise AssertionError(
             f"Shape mismatch for {var_name} dimension {dim_name}: expected {expected_dim} (from {first_var}), got {actual_dim}"
         )
 
-def check_literal_dimension(actual_dim: int, expected_literal: int, dim_name: str, var_name: str) -> None:
+def _check_literal_dimension(actual_dim: int, expected_literal: int, dim_name: str, var_name: str) -> None:
     """Runtime checking function for literal dimensions."""
     if actual_dim != expected_literal:
         raise AssertionError(
@@ -236,16 +246,23 @@ def check_literal_dimension(actual_dim: int, expected_literal: int, dim_name: st
 
 def sizecheck(func):
     """
-    Shape checking decorator using AST transformation.
+    Automatically adds runtime shape checking to functions based on
+    size-annotated variable names. Variables with underscores followed by dimension
+    letters (e.g., `x_NK`) are validated to ensure consistent shapes.
 
-    This decorator modifies the function's AST to inject shape checking
-    for both function arguments and variable assignments within the function.
+    Dimension annotations can contain:
+    - Variable dimensions (uppercase letters): `N`, `K`, `M` - stored in variables of the same name
+    - Constant dimensions (single digits): `3`, `4`, `2` - checked for exact size
 
-    Variable naming convention:
-    - Variables with underscores in their names are checked
-    - The suffix after the last underscore indicates the shape
-    - Single capital letters are treated as separate dimensions: 'NK' -> ['N', 'K']
-    - Single-character numbers are treated as dimensions as well: 'N1' -> ['N', 1]
+    The macro automatically adds shape validation for:
+    1. **Function arguments** with underscores in their names
+    2. **Variable assignments** to names containing underscores, including destructuring assignments
+    3. **Augmented assignments** (+=, -=, *=, etc.)
+
+    The dimensions are scoped to the function they are defined in.
+    For example, if you define a function `foo` with a parameter `x_NK`, the dimension `N` is only valid within the scope of `foo`.
+    If you define another function `bar` with a parameter `y_NL`, this dimension `N` can differ from the one in `foo`,
+    but it is only valid within the scope of `bar`.
 
     Args:
         func: Function to decorate
@@ -253,12 +270,23 @@ def sizecheck(func):
     Returns:
         Decorated function with shape checking
 
-    Examples:
+    Example:
+        ```python
         @sizecheck
         def matrix_multiply(A_NK, B_KM):
             result_NM = torch.matmul(A_NK, B_KM)
             return result_NM
 
+        # This works fine
+        a_NK = torch.randn(3, 4)  # N=3, K=4
+        b_KM = torch.randn(4, 5)  # K=4, M=5
+        result = matrix_multiply(a_NK, b_KM)  # size: (3, 5)
+
+        # This raises an error
+        a_NK = torch.randn(3, 4)
+        b_KM = torch.randn(5, 6)  # Wrong! K dimensions don't match
+        result = matrix_multiply(a_NK, b_KM)  # Error!
+        ```
     """
     source = textwrap.dedent(inspect.getsource(func))
     original_filename = inspect.getfile(func)
@@ -268,14 +296,16 @@ def sizecheck(func):
         tree.body[0].decorator_list.pop(0)
     # Adjust line numbers in the parsed tree
     ast.increment_lineno(tree, original_lineno - 1)
-    transformer = SizeCheckTransformer()
+    transformer = _SizeCheckTransformer()
     new_tree = transformer.visit(tree)
     ast.fix_missing_locations(new_tree)
     # print(ast.dump(new_tree, indent=4))
     code = compile(new_tree, filename=original_filename, mode='exec')
     namespace = func.__globals__.copy()
     namespace['_check_dimension_count'] = _check_dimension_count
-    namespace['check_dimension'] = check_dimension
-    namespace['check_literal_dimension'] = check_literal_dimension
+    namespace['check_dimension'] = _check_dimension
+    namespace['check_literal_dimension'] = _check_literal_dimension
     exec(code, namespace)
     return namespace[func.__name__]
+
+__all__ = ["sizecheck"]
