@@ -1,6 +1,6 @@
 # Runtime Shape Validation for Size-Annotated Python Code
 
-The `sizecheck` package provides a decorator that automatically adds runtime shape checking to Python functions based on size-annotated variable names using AST transformation.
+The `sizecheck` package provides a decorator that automatically adds runtime shape checking to Python functions based on size-annotated variable names using AST transformation. [![][docs-dev-img]][docs-dev-url]
 
 ## Overview
 
@@ -57,3 +57,6 @@ The decorator automatically adds shape validation for:
 ## Dimension Scope
 
 The dimensions are scoped to the function they are defined in. For example, if you define a function `foo` with a parameter `x_NK`, the dimension `N` is only valid within the scope of `foo`. If you define another function `bar` with a parameter `y_NL`, this dimension `N` can differ from the one in `foo`, but it is only valid within the scope of `bar`.
+
+[docs-dev-img]: https://img.shields.io/badge/docs-dev-blue.svg
+[docs-dev-url]: https://samanklesaria.github.io/sizecheck/
