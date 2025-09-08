@@ -1,4 +1,4 @@
-# sizecheck: Runtime Shape Validation for Size-Annotated PyTorch Code
+# sizecheck: Runtime Shape Validation for Size-Annotated Python Code
 
 The `sizecheck` package provides a Python decorator that automatically adds runtime shape checking to python functions based on size-annotated variable names using AST transformation.
 
@@ -10,6 +10,7 @@ When writing PyTorch or NumPy code, it's common to use naming conventions that i
 
 - **AST-based transformation**: Automatically injects shape checks into function arguments and variable assignments
 - **Intuitive naming convention**: Use underscores to indicate tensor shapes
+- **Framework agnostic**: Works with PyTorch, NumPy, Jax, and any other libraries that use `.shape` to indicate tensor shapes.
 - **Comprehensive checking**: Validates both function parameters and intermediate assignments
 - **Clear error messages**: Provides detailed information when shapes don't match
 
