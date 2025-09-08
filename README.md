@@ -1,6 +1,6 @@
-# ShapeCheck: Runtime Shape Validation for Size-Annotated PyTorch Code
+# sizecheck: Runtime Shape Validation for Size-Annotated PyTorch Code
 
-The `ShapeCheck` package provides a Python decorator that automatically adds runtime shape checking to python functions based on size-annotated variable names using AST transformation.
+The `sizecheck` package provides a Python decorator that automatically adds runtime shape checking to python functions based on size-annotated variable names using AST transformation.
 
 ## Overview
 
@@ -17,9 +17,9 @@ When writing PyTorch or NumPy code, it's common to use naming conventions that i
 
 ```python
 import torch
-from shapecheck import shapecheck
+from sizecheck import sizecheck
 
-@shapecheck
+@sizecheck
 def matrix_multiply(a_NK, b_KM):
     """Matrix multiplication with automatic shape checking."""
     result_NM = torch.matmul(a_NK, b_KM)

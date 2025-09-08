@@ -39,7 +39,7 @@ def create_check_shape_call(var_name: str, dims: List[str], lineno: int = 1) -> 
     expr.value.col_offset = 0
     return expr
 
-class ShapeCheckTransformer(ast.NodeTransformer):
+class SizeCheckTransformer(ast.NodeTransformer):
     """AST transformer that injects shape checking code."""
 
     def extract_names_from_target(self, target):
@@ -150,7 +150,7 @@ def check_shape(tensor: Any, dim_names: List[str], _dims_: Dict[str, Tuple[int, 
         else:
             _dims_[dim_name] = (actual_dim, var_name)
 
-def shapecheck(func):
+def sizecheck(func):
     """
     Shape checking decorator using AST transformation.
 
@@ -169,7 +169,7 @@ def shapecheck(func):
         Decorated function with shape checking
 
     Examples:
-        @shapecheck
+        @sizecheck
         def matrix_multiply(A_NK, B_KM):
             result_NM = torch.matmul(A_NK, B_KM)
             return result_NM
@@ -183,7 +183,7 @@ def shapecheck(func):
         tree.body[0].decorator_list.pop(0)
     # Adjust line numbers in the parsed tree
     ast.increment_lineno(tree, original_lineno - 1)
-    transformer = ShapeCheckTransformer()
+    transformer = SizeCheckTransformer()
     new_tree = transformer.visit(tree)
     ast.fix_missing_locations(new_tree)
     # print(ast.dump(new_tree, indent=4))

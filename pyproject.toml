@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shapecheck"
+name = "sizecheck"
 version = "0.1.0"
 description = "Runtime shape validation for size-annotated Python code"
 readme = "README.md"
@@ -30,9 +30,9 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/samanklesaria/shapecheck"
-Repository = "https://github.com/samanklesaria/shapecheck"
-Issues = "https://github.com/samanklesaria/shapecheck/issues"
+Homepage = "https://github.com/samanklesaria/sizecheck"
+Repository = "https://github.com/samanklesaria/sizecheck"
+Issues = "https://github.com/samanklesaria/sizecheck/issues"
 
 [tool.setuptools]
-py-modules = ["shapecheck"]
+py-modules = ["sizecheck"]

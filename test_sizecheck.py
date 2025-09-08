@@ -1,8 +1,8 @@
 import torch
 import pytest
-from shapecheck import shapecheck
+from sizecheck import sizecheck
 
-@shapecheck
+@sizecheck
 def matrix_operations(A_NK, B_KM, C_NM):
     """Matrix operations with comprehensive shape checking."""
     # These assignments will be automatically checked
@@ -10,7 +10,7 @@ def matrix_operations(A_NK, B_KM, C_NM):
     intermediate_NM += C_NM
     return intermediate_NM
 
-@shapecheck
+@sizecheck
 def transformer_attention(queries_BSH, keys_BSH, values_BSH):
     """Multi-head attention with automatic shape validation."""
     scores_BSS = torch.matmul(queries_BSH, keys_BSH.transpose(-2, -1))
@@ -19,7 +19,7 @@ def transformer_attention(queries_BSH, keys_BSH, values_BSH):
     attended_values_BSH = torch.matmul(attention_weights_BSS, values_BSH)
     return attended_values_BSH
 
-@shapecheck
+@sizecheck
 def destructuring_function():
     """Test function with destructuring assignments."""
     # Create some tensors to destructure
@@ -56,14 +56,14 @@ def test_destructuring_assignments():
 class LinearLayer:
     """Test class with shape-checked method."""
 
-    @shapecheck
+    @sizecheck
     def forward(self, input_BH, weight_HO):
         """Forward pass with shape checking."""
         output_BO = torch.matmul(input_BH, weight_HO)
         return output_BO
 
 def test_class_method():
-    """Test class method with @shapecheck decorator."""
+    """Test class method with @sizecheck decorator."""
     layer = LinearLayer()
     input_BH = torch.randn(2, 3)
     weight_HO = torch.randn(3, 4)
