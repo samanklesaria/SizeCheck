@@ -64,7 +64,6 @@ def test_class_method():
     output = layer.forward(input_BH, weight_HO)
     assert output.shape == (2, 4)
 
-
 def test_dimension_variables_accessible():
     """Test that shape dimensions are accessible as raw variable names."""
     @sizecheck
@@ -86,6 +85,67 @@ def test_dimension_variables_accessible():
 
     # Result should have correct shape based on dimension variables
     assert result.shape == (3, 5)
+
+def test_numeric_literal_dimensions():
+    """Test that numeric literals in shape dimensions work correctly."""
+    @sizecheck
+    def test_function(input_N3, weight_3M):
+        # 3 should be checked as a literal, N and M as variables
+        assert N == input_N3.shape[0]
+        assert M == weight_3M.shape[1]
+        # The middle dimensions should be exactly 3
+        result_NM = torch.matmul(input_N3, weight_3M)
+        return result_NM
+
+    # Test with correct dimensions
+    input_tensor = torch.randn(4, 3)  # N=4, literal=3
+    weight_tensor = torch.randn(3, 5)  # literal=3, M=5
+    result = test_function(input_tensor, weight_tensor)
+    assert result.shape == (4, 5)
+
+@pytest.mark.xfail(reason="Expected literal dimension mismatch", raises=AssertionError)
+def test_numeric_literal_mismatch():
+    """Test that numeric literal dimension checking catches mismatches."""
+    @sizecheck
+    def test_function(input_N3):
+        return input_N3
+
+    # This should fail because second dimension is 4, not 3
+    input_tensor = torch.randn(5, 4)
+    test_function(input_tensor)
+
+def test_mixed_literals_and_variables():
+    """Test that mixed numeric literals and variables work together."""
+    @sizecheck
+    def test_function(rgb_image_N3HW, conv_filter_36KK):
+        # N, H, W are variables; 3, 6, K are checked/assigned appropriately
+        assert N == rgb_image_N3HW.shape[0]
+        assert H == rgb_image_N3HW.shape[2]
+        assert W == rgb_image_N3HW.shape[3]
+        assert K == conv_filter_36KK.shape[2]
+        assert K == conv_filter_36KK.shape[3]  # K should be same for both dims
+
+        # Simulate convolution output
+        result_N6HW = torch.zeros(N, 6, H, W)
+        return result_N6HW
+
+    # Test with matching dimensions
+    rgb = torch.randn(2, 3, 64, 48)  # N=2, 3 channels, H=64, W=48
+    filt = torch.randn(3, 6, 5, 5)   # 3 in, 6 out, K=5 (5x5 kernel)
+    result = test_function(rgb, filt)
+    assert result.shape == (2, 6, 64, 48)
+
+@pytest.mark.xfail(reason="Expected mixed literal/variable mismatch", raises=AssertionError)
+def test_mixed_literals_mismatch():
+    """Test error handling with mixed literals and variables."""
+    @sizecheck
+    def test_function(rgb_N3HW, filter_36KK):
+        return torch.zeros(N, 6, H, W)
+
+    # This should fail - first tensor has 4 channels, not 3
+    rgb = torch.randn(2, 4, 32, 32)
+    filt = torch.randn(3, 6, 3, 3)
+    test_function(rgb, filt)
 
 @pytest.mark.xfail(reason="Expected dimension mismatch", raises=AssertionError)
 def test_dimension_mismatch():

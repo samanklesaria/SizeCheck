@@ -9,7 +9,7 @@ def extract_shape_dims(name: str) -> List[str]:
     if len(parts) < 2:
         return []
     shape_part = parts[-1]
-    if shape_part.isalpha() and shape_part.isupper():
+    if all(c.isupper() or c.isdigit() for c in shape_part) and shape_part.isalnum():
         return list(shape_part)
     else:
         return []
@@ -56,7 +56,22 @@ def create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[str
             ctx=ast.Load()
         )
 
-        if dim in first_vars and first_vars[dim] != var_name:
+        if dim.isdigit():
+            # Numeric literal - check against constant
+            check_expr = ast.Expr(
+                value=ast.Call(
+                    func=ast.Name(id='check_literal_dimension', ctx=ast.Load()),
+                    args=[
+                        shape_access,
+                        ast.Constant(value=int(dim)),
+                        ast.Constant(value=dim),
+                        ast.Constant(value=var_name)
+                    ],
+                    keywords=[]
+                )
+            )
+            if_body.append(check_expr)
+        elif dim in first_vars and first_vars[dim] != var_name:
             # Check dimension matches existing variable
             check_expr = ast.Expr(
                 value=ast.Call(
@@ -120,7 +135,7 @@ class SizeCheckTransformer(ast.NodeTransformer):
                 dims = extract_shape_dims(name)
                 if dims:
                     for dim in dims:
-                        if dim not in self.first_vars:
+                        if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = name
                     check_nodes = create_check_shape_call(name, dims, self.first_vars, node.lineno)
                     new_nodes.extend(check_nodes)
@@ -138,7 +153,7 @@ class SizeCheckTransformer(ast.NodeTransformer):
             dims = extract_shape_dims(name)
             if dims:
                 for dim in dims:
-                    if dim not in self.first_vars:
+                    if dim not in self.first_vars and not dim.isdigit():
                         self.first_vars[dim] = name
                 check_nodes.extend(create_check_shape_call(name, dims, self.first_vars, node.lineno))
         if check_nodes:
@@ -153,7 +168,7 @@ class SizeCheckTransformer(ast.NodeTransformer):
             dims = extract_shape_dims(node.target.id)
             if dims:
                 for dim in dims:
-                    if dim not in self.first_vars:
+                    if dim not in self.first_vars and not dim.isdigit():
                         self.first_vars[dim] = node.target.id
                 check_nodes = create_check_shape_call(node.target.id, dims, self.first_vars, node.lineno)
                 return [node] + check_nodes
@@ -169,7 +184,7 @@ class SizeCheckTransformer(ast.NodeTransformer):
                 dims = extract_shape_dims(arg.arg)
                 if dims:
                     for dim in dims:
-                        if dim not in self.first_vars:
+                        if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = arg.arg
                     arg_checks.extend(create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
 
@@ -179,7 +194,7 @@ class SizeCheckTransformer(ast.NodeTransformer):
                 dims = extract_shape_dims(arg.arg)
                 if dims:
                     for dim in dims:
-                        if dim not in self.first_vars:
+                        if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = arg.arg
                     arg_checks.extend(create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
 
@@ -212,6 +227,13 @@ def check_dimension(actual_dim: int, expected_dim: int, dim_name: str, var_name:
             f"Shape mismatch for {var_name} dimension {dim_name}: expected {expected_dim} (from {first_var}), got {actual_dim}"
         )
 
+def check_literal_dimension(actual_dim: int, expected_literal: int, dim_name: str, var_name: str) -> None:
+    """Runtime checking function for literal dimensions."""
+    if actual_dim != expected_literal:
+        raise AssertionError(
+            f"Shape mismatch for {var_name} dimension {dim_name}: expected {expected_literal}, got {actual_dim}"
+        )
+
 def sizecheck(func):
     """
     Shape checking decorator using AST transformation.
@@ -223,6 +245,7 @@ def sizecheck(func):
     - Variables with underscores in their names are checked
     - The suffix after the last underscore indicates the shape
     - Single capital letters are treated as separate dimensions: 'NK' -> ['N', 'K']
+    - Single-character numbers are treated as dimensions as well: 'N1' -> ['N', 1]
 
     Args:
         func: Function to decorate
@@ -253,5 +276,6 @@ def sizecheck(func):
     namespace = func.__globals__.copy()
     namespace['_check_dimension_count'] = _check_dimension_count
     namespace['check_dimension'] = check_dimension
+    namespace['check_literal_dimension'] = check_literal_dimension
     exec(code, namespace)
     return namespace[func.__name__]
