@@ -1,6 +1,6 @@
-# sizecheck: Runtime Shape Validation for Size-Annotated Python Code
+# Runtime Shape Validation for Size-Annotated Python Code
 
-The `sizecheck` package provides a Python decorator that automatically adds runtime shape checking to python functions based on size-annotated variable names using AST transformation.
+The `sizecheck` package provides a decorator that automatically adds runtime shape checking to Python functions based on size-annotated variable names using AST transformation.
 
 ## Overview
 
