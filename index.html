@@ -55,84 +55,20 @@ their annotated shapes at runtime.</p>
 <span>def <span class="ident">sizecheck</span></span>(<span>func)</span>
 </code></dt>
 <dd>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def sizecheck(func):
-    &#34;&#34;&#34;
-    Automatically adds runtime shape checking to functions based on
-    size-annotated variable names. Variables with underscores followed by dimension
-    letters (e.g., `x_NK`) are validated to ensure consistent shapes.
-
-    Dimension annotations can contain:
-    - Variable dimensions (uppercase letters): `N`, `K`, `M` - stored in variables of the same name
-    - Constant dimensions (single digits): `3`, `4`, `2` - checked for exact size
-
-    The macro automatically adds shape validation for:
-    1. **Function arguments** with underscores in their names
-    2. **Variable assignments** to names containing underscores, including destructuring assignments
-    3. **Augmented assignments** (+=, -=, *=, etc.)
-
-    The dimensions are scoped to the function they are defined in.
-    For example, if you define a function `foo` with a parameter `x_NK`, the dimension `N` is only valid within the scope of `foo`.
-    If you define another function `bar` with a parameter `y_NL`, this dimension `N` can differ from the one in `foo`,
-    but it is only valid within the scope of `bar`.
-
-    Args:
-        func: Function to decorate
-
-    Returns:
-        Decorated function with shape checking
-
-    Example:
-        ```python
-        @sizecheck
-        def matrix_multiply(A_NK, B_KM):
-            result_NM = torch.matmul(A_NK, B_KM)
-            return result_NM
-
-        # This works fine
-        a_NK = torch.randn(3, 4)  # N=3, K=4
-        b_KM = torch.randn(4, 5)  # K=4, M=5
-        result = matrix_multiply(a_NK, b_KM)  # size: (3, 5)
-
-        # This raises an error
-        a_NK = torch.randn(3, 4)
-        b_KM = torch.randn(5, 6)  # Wrong! K dimensions don&#39;t match
-        result = matrix_multiply(a_NK, b_KM)  # Error!
-        ```
-    &#34;&#34;&#34;
-    source = textwrap.dedent(inspect.getsource(func))
-    original_filename = inspect.getfile(func)
-    original_lineno = inspect.getsourcelines(func)[1]
-    tree = ast.parse(source)
-    if tree.body and isinstance(tree.body[0], ast.FunctionDef):
-        tree.body[0].decorator_list.pop(0)
-    # Adjust line numbers in the parsed tree
-    ast.increment_lineno(tree, original_lineno - 1)
-    transformer = _SizeCheckTransformer()
-    new_tree = transformer.visit(tree)
-    ast.fix_missing_locations(new_tree)
-    # print(ast.dump(new_tree, indent=4))
-    code = compile(new_tree, filename=original_filename, mode=&#39;exec&#39;)
-    namespace = func.__globals__.copy()
-    namespace[&#39;_check_dimension_count&#39;] = _check_dimension_count
-    namespace[&#39;check_dimension&#39;] = _check_dimension
-    namespace[&#39;check_literal_dimension&#39;] = _check_literal_dimension
-    exec(code, namespace)
-    return namespace[func.__name__]</code></pre>
-</details>
 <div class="desc"><p>Automatically adds runtime shape checking to functions based on
 size-annotated variable names. Variables with underscores followed by dimension
 letters (e.g., <code>x_NK</code>) are validated to ensure consistent shapes.</p>
-<p>Dimension annotations can contain:
-- Variable dimensions (uppercase letters): <code>N</code>, <code>K</code>, <code>M</code> - stored in variables of the same name
-- Constant dimensions (single digits): <code>3</code>, <code>4</code>, <code>2</code> - checked for exact size</p>
-<p>The macro automatically adds shape validation for:
-1. <strong>Function arguments</strong> with underscores in their names
-2. <strong>Variable assignments</strong> to names containing underscores, including destructuring assignments
-3. <strong>Augmented assignments</strong> (+=, -=, *=, etc.)</p>
+<p>Dimension annotations can contain:</p>
+<ul>
+<li>Variable dimensions (uppercase letters): <code>N</code>, <code>K</code>, <code>M</code> - stored in variables of the same name</li>
+<li>Constant dimensions (single digits): <code>3</code>, <code>4</code>, <code>2</code> - checked for exact size</li>
+</ul>
+<p>The macro automatically adds shape validation for:</p>
+<ol>
+<li><strong>Function arguments</strong> with underscores in their names</li>
+<li><strong>Variable assignments</strong> to names containing underscores, including destructuring assignments</li>
+<li><strong>Augmented assignments</strong> (+=, -=, *=, etc.)</li>
+</ol>
 <p>The dimensions are scoped to the function they are defined in.
 For example, if you define a function <code>foo</code> with a parameter <code>x_NK</code>, the dimension <code>N</code> is only valid within the scope of <code>foo</code>.
 If you define another function <code>bar</code> with a parameter <code>y_NL</code>, this dimension <code>N</code> can differ from the one in <code>foo</code>,
