@@ -251,10 +251,12 @@ def sizecheck(func):
     letters (e.g., `x_NK`) are validated to ensure consistent shapes.
 
     Dimension annotations can contain:
+
     - Variable dimensions (uppercase letters): `N`, `K`, `M` - stored in variables of the same name
     - Constant dimensions (single digits): `3`, `4`, `2` - checked for exact size
 
     The macro automatically adds shape validation for:
+
     1. **Function arguments** with underscores in their names
     2. **Variable assignments** to names containing underscores, including destructuring assignments
     3. **Augmented assignments** (+=, -=, *=, etc.)
