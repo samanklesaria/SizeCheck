@@ -20,7 +20,7 @@ def transformer_attention(queries_BSH, keys_BSH, values_BSH):
     return attended_values_BSH
 
 @sizecheck
-def destructuring_function():
+def test_destructuring_function():
     """Test function with destructuring assignments."""
     # Create some tensors to destructure
     tensor1_NK = torch.randn(3, 4)
@@ -30,9 +30,7 @@ def destructuring_function():
     result1_NM, result2_KN = torch.matmul(tensor1_NK, tensor2_KM), tensor1_NK.T
 
     # List destructuring
-    [final1_NM, final2_KN] = [result1_NM, result2_KN]
-
-    return final1_NM, final2_KN
+    final1_NM, final2_KN = result1_NM, result2_KN
 
 def test_matrix_operations():
     """Test matrix operations."""
@@ -48,10 +46,6 @@ def test_transformer_attention():
     keys_BSH = torch.randn(batch, seq_len, hidden)
     values_BSH = torch.randn(batch, seq_len, hidden)
     transformer_attention(queries_BSH, keys_BSH, values_BSH)
-
-def test_destructuring_assignments():
-    """Test destructuring assignments with shape checking."""
-    destructuring_function()
 
 class LinearLayer:
     """Test class with shape-checked method."""
@@ -70,6 +64,28 @@ def test_class_method():
     output = layer.forward(input_BH, weight_HO)
     assert output.shape == (2, 4)
 
+
+def test_dimension_variables_accessible():
+    """Test that shape dimensions are accessible as raw variable names."""
+    @sizecheck
+    def test_function(x_NM, y_MK):
+        # Dimension variables should be accessible directly
+        assert N == x_NM.shape[0]
+        assert M == x_NM.shape[1]
+        assert M == y_MK.shape[0]  # Same M dimension
+        assert K == y_MK.shape[1]
+
+        # Use dimension variables in calculations
+        result_NK = torch.zeros(N, K)
+        return result_NK
+
+    # Test with actual tensors
+    x = torch.randn(3, 4)
+    y = torch.randn(4, 5)
+    result = test_function(x, y)
+
+    # Result should have correct shape based on dimension variables
+    assert result.shape == (3, 5)
 
 @pytest.mark.xfail(reason="Expected dimension mismatch", raises=AssertionError)
 def test_dimension_mismatch():
