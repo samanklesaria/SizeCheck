@@ -63,3 +63,7 @@ The dimensions are scoped to the function they are defined in. For example, if y
 
 [docs-dev-img]: https://img.shields.io/badge/docs-dev-blue.svg
 [docs-dev-url]: https://samanklesaria.github.io/sizecheck/latest
+
+## Julia version
+
+If you're looking for the Julia version of this library, check out [SizeCheck.jl](https://github.com/samanklesaria/SizeCheck.jl).
