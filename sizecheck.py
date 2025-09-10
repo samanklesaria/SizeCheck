@@ -83,6 +83,7 @@ def _create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[st
             if_body.append(check_expr)
         elif dim in first_vars and first_vars[dim] != var_name:
             # Check dimension matches existing variable
+            first_var_name = first_vars[dim] if first_vars[dim] is not None else "explicitly provided"
             check_expr = ast.Expr(
                 value=ast.Call(
                     func=ast.Name(id='check_dimension', ctx=ast.Load()),
@@ -91,7 +92,7 @@ def _create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[st
                         ast.Name(id=dim, ctx=ast.Load()),
                         ast.Constant(value=dim),
                         ast.Constant(value=var_name),
-                        ast.Constant(value=first_vars[dim])
+                        ast.Constant(value=first_var_name)
                     ],
                     keywords=[]
                 )
@@ -135,13 +136,38 @@ class _SizeCheckTransformer(ast.NodeTransformer):
         else:
             return []
 
+    def is_potential_dimension_var(self, name: str) -> bool:
+        """Check if a name could be a dimension variable (single uppercase letter)."""
+        return len(name) == 1 and name.isupper()
+
     def visit_Assign(self, node: ast.Assign) -> Union[ast.Assign, List[ast.stmt]]:
         """Transform assignment nodes to add shape checks."""
         node = self.generic_visit(node)  # type: ignore
         new_nodes: List[ast.stmt] = [node]
+
         for target in node.targets:
             names = self.extract_names_from_target(target)
             for name in names:
+                # Check if this is an explicit assignment to a dimension variable
+                if self.is_potential_dimension_var(name):
+                    if name in self.first_vars and self.first_vars[name] is not None:
+                        # Error: assigning to dimension variable after it's been used
+                        error_stmt = ast.Raise(
+                            exc=ast.Call(
+                                func=ast.Name(id='ValueError', ctx=ast.Load()),
+                                args=[ast.Constant(value=f"Cannot assign to dimension variable '{name}' after it has been used in shape annotations")],
+                                keywords=[]
+                            ),
+                            cause=None
+                        )
+                        error_stmt.lineno = node.lineno
+                        error_stmt.col_offset = 0
+                        new_nodes.append(error_stmt)
+                    elif name not in self.first_vars:
+                        # Mark as explicitly provided
+                        self.first_vars[name] = None
+
+                # Handle shape-annotated variables
                 dims = _extract_shape_dims(name)
                 if dims:
                     for dim in dims:
@@ -149,6 +175,7 @@ class _SizeCheckTransformer(ast.NodeTransformer):
                             self.first_vars[dim] = name
                     check_nodes = _create_check_shape_call(name, dims, self.first_vars, node.lineno)
                     new_nodes.extend(check_nodes)
+
         if len(new_nodes) > 1:
             return new_nodes
         else:
@@ -159,13 +186,35 @@ class _SizeCheckTransformer(ast.NodeTransformer):
         node = self.generic_visit(node)  # type: ignore
         names = self.extract_names_from_target(node.target)
         check_nodes: List[ast.stmt] = []
+
         for name in names:
+            # Check if this is an explicit assignment to a dimension variable
+            if self.is_potential_dimension_var(name):
+                if name in self.first_vars and self.first_vars[name] is not None:
+                    # Error: assigning to dimension variable after it's been used
+                    error_stmt = ast.Raise(
+                        exc=ast.Call(
+                            func=ast.Name(id='ValueError', ctx=ast.Load()),
+                            args=[ast.Constant(value=f"Cannot assign to dimension variable '{name}' after it has been used in shape annotations")],
+                            keywords=[]
+                        ),
+                        cause=None
+                    )
+                    error_stmt.lineno = node.lineno
+                    error_stmt.col_offset = 0
+                    check_nodes.append(error_stmt)
+                elif name not in self.first_vars:
+                    # Mark as explicitly provided
+                    self.first_vars[name] = None
+
+            # Handle shape-annotated variables
             dims = _extract_shape_dims(name)
             if dims:
                 for dim in dims:
                     if dim not in self.first_vars and not dim.isdigit():
                         self.first_vars[dim] = name
                 check_nodes.extend(_create_check_shape_call(name, dims, self.first_vars, node.lineno))
+
         if check_nodes:
             return [node] + check_nodes
         else:

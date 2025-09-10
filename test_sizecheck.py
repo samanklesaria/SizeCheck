@@ -152,3 +152,158 @@ def test_dimension_mismatch():
     B_KM = torch.randn(5, 6)  # Wrong dimensions - K should be 4, not 5
     C_NM = torch.randn(3, 6)
     matrix_operations(A_NK, B_KM, C_NM)
+
+def test_explicit_assignment_before_use():
+    """Test that explicit assignment before use shows 'explicitly provided' in error messages."""
+    @sizecheck
+    def test_func():
+        N = 5  # explicit assignment
+        x_N = torch.randn(3)  # should fail with "explicitly provided"
+        return x_N
+
+    with pytest.raises(AssertionError, match=r"expected 5 \(from explicitly provided\)"):
+        test_func()
+
+def test_explicit_assignment_after_use_raises_error():
+    """Test that explicit assignment after use raises ValueError."""
+    @sizecheck
+    def test_func(x_N):
+        N = 10  # should raise error at runtime
+        return x_N
+
+    with pytest.raises(ValueError, match="Cannot assign to dimension variable 'N' after it has been used"):
+        test_func(torch.randn(5))
+
+def test_explicit_assignment_after_use_in_body():
+    """Test that explicit assignment after shape annotation in body raises error."""
+    @sizecheck
+    def test_func():
+        x_N = torch.randn(5)  # N gets recorded
+        N = 10  # should raise error at runtime
+        return x_N
+
+    with pytest.raises(ValueError, match="Cannot assign to dimension variable 'N' after it has been used"):
+        test_func()
+
+def test_multiple_explicit_assignments():
+    """Test multiple explicit assignments before use."""
+    @sizecheck
+    def test_func():
+        N = 5
+        K = 3
+        x_NK = torch.randn(4, 3)  # N mismatch
+        return x_NK
+
+    with pytest.raises(AssertionError, match=r"expected 5 \(from explicitly provided\)"):
+        test_func()
+
+def test_annotated_assignment_explicit():
+    """Test explicit assignment with annotated assignments."""
+    @sizecheck
+    def test_func():
+        N = 5
+        x_N: torch.Tensor = torch.randn(3)
+        return x_N
+
+    with pytest.raises(AssertionError, match=r"expected 5 \(from explicitly provided\)"):
+        test_func()
+
+def test_annotated_assignment_after_use():
+    """Test annotated assignment after use raises error."""
+    @sizecheck
+    def test_func():
+        x_N = torch.randn(5)
+        N: int = 10  # should raise error
+        return x_N
+
+    with pytest.raises(ValueError, match="Cannot assign to dimension variable 'N' after it has been used"):
+        test_func()
+
+def test_mixed_explicit_and_shape_vars():
+    """Test mixing explicit assignments with normal shape variables."""
+    @sizecheck
+    def test_func(x_MN):
+        K = 7  # explicit assignment to unused dimension
+        y_NK = torch.randn(5, 7)  # N from x_MN, K explicitly provided
+        return x_MN, y_NK
+
+    x = torch.randn(3, 5)  # M=3, N=5
+    y_expected_shape = (5, 7)  # N=5, K=7
+    result = test_func(x)
+    assert result[1].shape == y_expected_shape
+
+def test_multi_letter_vars_not_affected():
+    """Test that multi-letter variables are not treated as dimension vars."""
+    @sizecheck
+    def test_func():
+        NN = 10  # should not be treated as dimension variable
+        x_N = torch.randn(5)  # N should work normally
+        return x_N
+
+    result = test_func()
+    assert result.shape == (5,)
+
+def test_lowercase_vars_not_affected():
+    """Test that lowercase variables are not treated as dimension vars."""
+    @sizecheck
+    def test_func():
+        n = 10  # should not be treated as dimension variable
+        x_N = torch.randn(5)  # N should work normally
+        return x_N
+
+    result = test_func()
+    assert result.shape == (5,)
+
+def test_reassignment_of_explicit_var():
+    """Test reassigning an explicitly provided dimension variable."""
+    @sizecheck
+    def test_func():
+        N = 5
+        N = 7  # reassigning explicit var should work
+        x_N = torch.randn(7)  # should use latest value
+        return x_N
+
+    result = test_func()
+    assert result.shape == (7,)
+
+def test_explicit_assignment_before_use_exact_message():
+    """Verify that explicit assignment before use shows 'explicitly provided' in error message."""
+    @sizecheck
+    def test_func():
+        N = 10  # explicit assignment to dimension variable
+        x_N = torch.randn(5)  # mismatch: expected 10, got 5
+        return x_N
+
+    with pytest.raises(AssertionError) as exc_info:
+        test_func()
+
+    error_msg = str(exc_info.value)
+    assert "expected 10 (from explicitly provided)" in error_msg
+    assert "got 5" in error_msg
+
+def test_mixed_explicit_and_inferred():
+    """Test mixing explicit assignments with normal dimension inference."""
+    @sizecheck
+    def test_func():
+        N = 3  # explicit
+        x_NK = torch.randn(3, 4)  # N explicit, K inferred to 4
+        y_KM = torch.randn(4, 5)  # K=4 from x_NK, M inferred to 5
+        return x_NK, y_KM
+
+    result = test_func()
+    assert result[0].shape == (3, 4)
+    assert result[1].shape == (4, 5)
+
+    # Test mismatch in mixed scenario
+    @sizecheck
+    def test_func2():
+        N = 3  # explicit
+        x_NK = torch.randn(3, 4)  # N explicit, K inferred
+        y_KM = torch.randn(2, 5)  # K mismatch with inferred value
+        return x_NK, y_KM
+
+    with pytest.raises(AssertionError) as exc_info:
+        test_func2()
+
+    error_msg = str(exc_info.value)
+    assert "expected 4 (from x_NK)" in error_msg  # Should reference the inferred source
