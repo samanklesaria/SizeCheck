@@ -43,16 +43,17 @@ Each character in the dimensions suffix represents one dimension:
 - `tensor_NK`: 2D tensor with dimensions N × K
 - `data_BCHW`: 4D tensor with dimensions B × C × H × W
 
-Only single capital letters are supported: `NK`, `BCHW`, `IJ`
+Dimension annotations can contain:
+
+- Variable dimensions (uppercase letters): `N`, `K`, `M` - stored in variables of the same name
+- Constant dimensions (single digits): `3`, `4`, `2` - checked for exact size
 
 ## What Gets Checked
 
 The decorator automatically adds shape validation for:
 
-1. **Function arguments** with underscores in their names
-2. **Variable assignments** to names containing underscores
-3. **Augmented assignments** (+=, -=, *=, etc.)
-4. **Annotated assignments** (PEP 526 style)
+- **Function arguments** with underscores in their names
+- **Variable assignments** to names containing underscores
 
 ## Dimension Scope
 

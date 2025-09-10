@@ -171,19 +171,6 @@ class _SizeCheckTransformer(ast.NodeTransformer):
         else:
             return node
 
-    def visit_AugAssign(self, node: ast.AugAssign) -> Union[ast.AugAssign, List[ast.stmt]]:
-        """Handle augmented assignments (+=, -=, etc.)."""
-        node = self.generic_visit(node)  # type: ignore
-        if isinstance(node.target, ast.Name):
-            dims = _extract_shape_dims(node.target.id)
-            if dims:
-                for dim in dims:
-                    if dim not in self.first_vars and not dim.isdigit():
-                        self.first_vars[dim] = node.target.id
-                check_nodes = _create_check_shape_call(node.target.id, dims, self.first_vars, node.lineno)
-                return [node] + check_nodes
-        return node
-
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Transform function definition to add argument checks."""
         arg_checks: List[ast.stmt] = []
@@ -257,9 +244,8 @@ def sizecheck(func):
 
     The macro automatically adds shape validation for:
 
-    1. **Function arguments** with underscores in their names
-    2. **Variable assignments** to names containing underscores, including destructuring assignments
-    3. **Augmented assignments** (+=, -=, *=, etc.)
+    - **Function arguments** with underscores in their names
+    - **Variable assignments** to names containing underscores, including destructuring assignments
 
     The dimensions are scoped to the function they are defined in.
     For example, if you define a function `foo` with a parameter `x_NK`, the dimension `N` is only valid within the scope of `foo`.

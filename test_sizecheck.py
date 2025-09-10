@@ -5,9 +5,7 @@ from sizecheck import sizecheck
 @sizecheck
 def matrix_operations(A_NK, B_KM, C_NM):
     """Matrix operations with comprehensive shape checking."""
-    # These assignments will be automatically checked
     intermediate_NM = torch.matmul(A_NK, B_KM)
-    intermediate_NM += C_NM
     return intermediate_NM
 
 @sizecheck
