@@ -2,6 +2,8 @@
 
 The `sizecheck` package provides a decorator that automatically adds runtime shape checking to Python functions based on size-annotated variable names using AST transformation. [![][docs-dev-img]][docs-dev-url]
 
+For previous versions of the documentation, substitute `latest` in the documentation URL above for the desired version.
+
 ## Overview
 
 When writing PyTorch or NumPy code, it's common to use naming conventions that indicate tensor shapes, as in this [Medium post](https://medium.com/@NoamShazeer/shape-suffixes-good-coding-style-f836e72e24fd). For example, if a tensor `weights` has shape `N × K`, you might name the variable `weights_NK`. This library automatically validates that tensors match their annotated shapes at runtime by analyzing and modifying your function's Abstract Syntax Tree (AST).
@@ -60,4 +62,4 @@ The decorator automatically adds shape validation for:
 The dimensions are scoped to the function they are defined in. For example, if you define a function `foo` with a parameter `x_NK`, the dimension `N` is only valid within the scope of `foo`. If you define another function `bar` with a parameter `y_NL`, this dimension `N` can differ from the one in `foo`, but it is only valid within the scope of `bar`.
 
 [docs-dev-img]: https://img.shields.io/badge/docs-dev-blue.svg
-[docs-dev-url]: https://samanklesaria.github.io/sizecheck/
+[docs-dev-url]: https://samanklesaria.github.io/sizecheck/latest
