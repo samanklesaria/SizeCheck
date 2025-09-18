@@ -12,6 +12,7 @@ import ast
 import inspect
 import textwrap
 from typing import Dict, List, Any, Union
+from itertools import chain
 
 def _extract_shape_dims(name: str) -> List[str]:
     """Extract shape dimensions from annotated variable name."""
@@ -133,6 +134,8 @@ class _SizeCheckTransformer(ast.NodeTransformer):
             for elt in target.elts:
                 names.extend(self.extract_names_from_target(elt))
             return names
+        elif isinstance(target, ast.Attribute):
+            return [target.attr]
         else:
             return []
 
@@ -167,19 +170,127 @@ class _SizeCheckTransformer(ast.NodeTransformer):
                         # Mark as explicitly provided
                         self.first_vars[name] = None
 
-                # Handle shape-annotated variables
+                # Handle shape-annotated variables and properties
                 dims = _extract_shape_dims(name)
                 if dims:
                     for dim in dims:
                         if dim not in self.first_vars and not dim.isdigit():
                             self.first_vars[dim] = name
-                    check_nodes = _create_check_shape_call(name, dims, self.first_vars, node.lineno)
+
+                    if isinstance(target, ast.Attribute):
+                        # For property assignments, check the property after assignment
+                        check_nodes = self._create_property_check_shape_call(target, dims, self.first_vars, node.lineno)
+                    else:
+                        # For regular variables, use existing logic
+                        check_nodes = _create_check_shape_call(name, dims, self.first_vars, node.lineno)
+
                     new_nodes.extend(check_nodes)
 
         if len(new_nodes) > 1:
             return new_nodes
         else:
             return node
+
+    def _create_property_check_shape_call(self, target: ast.Attribute, dims: List[str], first_vars: Dict[str, str], lineno: int = 1) -> List[ast.stmt]:
+        """Create statements for shape checking property assignments."""
+        statements = []
+
+        # Create a Load version of the target for reading
+        target_load = ast.Attribute(
+            value=target.value,
+            attr=target.attr,
+            ctx=ast.Load()
+        )
+
+        # Create if statement to check if property has shape attribute
+        if_test = ast.Call(
+            func=ast.Name(id='hasattr', ctx=ast.Load()),
+            args=[
+                target_load,
+                ast.Constant(value='shape')
+            ],
+            keywords=[]
+        )
+
+        if_body = []
+
+        # Check dimension count
+        dim_count_check = ast.Expr(
+            value=ast.Call(
+                func=ast.Name(id='_check_dimension_count', ctx=ast.Load()),
+                args=[
+                    target_load,
+                    ast.Constant(value=len(dims)),
+                    ast.Constant(value=target.attr)
+                ],
+                keywords=[]
+            )
+        )
+        if_body.append(dim_count_check)
+
+        for i, dim in enumerate(dims):
+            # Create shape access: target.shape[i]
+            shape_access = ast.Subscript(
+                value=ast.Attribute(
+                    value=target_load,
+                    attr='shape',
+                    ctx=ast.Load()
+                ),
+                slice=ast.Constant(value=i),
+                ctx=ast.Load()
+            )
+
+            if dim.isdigit():
+                # Numeric literal - check against constant
+                check_expr = ast.Expr(
+                    value=ast.Call(
+                        func=ast.Name(id='check_literal_dimension', ctx=ast.Load()),
+                        args=[
+                            shape_access,
+                            ast.Constant(value=int(dim)),
+                            ast.Constant(value=dim),
+                            ast.Constant(value=target.attr)
+                        ],
+                        keywords=[]
+                    )
+                )
+                if_body.append(check_expr)
+            elif dim in first_vars and first_vars[dim] != target.attr:
+                # Check dimension matches existing variable
+                first_var_name = first_vars[dim] if first_vars[dim] is not None else "explicitly provided"
+                check_expr = ast.Expr(
+                    value=ast.Call(
+                        func=ast.Name(id='check_dimension', ctx=ast.Load()),
+                        args=[
+                            shape_access,
+                            ast.Name(id=dim, ctx=ast.Load()),
+                            ast.Constant(value=dim),
+                            ast.Constant(value=target.attr),
+                            ast.Constant(value=first_var_name)
+                        ],
+                        keywords=[]
+                    )
+                )
+                if_body.append(check_expr)
+            else:
+                # Assign dimension to variable (first time we see this dimension)
+                assign = ast.Assign(
+                    targets=[ast.Name(id=dim, ctx=ast.Store())],
+                    value=shape_access
+                )
+                if_body.append(assign)
+
+        # Create the if statement
+        if_stmt = ast.If(
+            test=if_test,
+            body=if_body,
+            orelse=[]
+        )
+        if_stmt.lineno = lineno
+        if_stmt.col_offset = 0
+        statements.append(if_stmt)
+
+        return statements
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> Union[ast.AnnAssign, List[ast.stmt]]:
         """Handle annotated assignments."""
@@ -224,37 +335,19 @@ class _SizeCheckTransformer(ast.NodeTransformer):
         """Transform function definition to add argument checks."""
         arg_checks: List[ast.stmt] = []
 
-        # Check regular arguments
-        for arg in node.args.args:
-            if '_' in arg.arg:
-                dims = _extract_shape_dims(arg.arg)
-                if dims:
-                    for dim in dims:
-                        if dim not in self.first_vars and not dim.isdigit():
-                            self.first_vars[dim] = arg.arg
-                    arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
-
-        # Check keyword-only arguments
-        for arg in node.args.kwonlyargs:
-            if '_' in arg.arg:
-                dims = _extract_shape_dims(arg.arg)
-                if dims:
-                    for dim in dims:
-                        if dim not in self.first_vars and not dim.isdigit():
-                            self.first_vars[dim] = arg.arg
-                    arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
+        # Check arguments
+        for arg in chain(node.args.args, node.args.kwonlyargs):
+            dims = _extract_shape_dims(arg.arg)
+            for dim in dims:
+                if dim not in self.first_vars and not dim.isdigit():
+                    self.first_vars[dim] = arg.arg
+            arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
 
         # Transform the function body
-        new_body = []
-        for stmt in node.body:
-            transformed = self.visit(stmt)
-            if isinstance(transformed, list):
-                new_body.extend(transformed)
-            else:
-                new_body.append(transformed)
+        self.generic_visit(node)
 
         # Insert argument checks at the beginning
-        node.body = arg_checks + new_body
+        node.body = arg_checks + node.body
 
         return node
 
@@ -336,9 +429,8 @@ def sizecheck(func):
     transformer = _SizeCheckTransformer()
     new_tree = transformer.visit(tree)
     ast.fix_missing_locations(new_tree)
-    # print(ast.dump(new_tree, indent=4))
     code = compile(new_tree, filename=original_filename, mode='exec')
-    namespace = func.__globals__.copy()
+    namespace = func.__globals__
     namespace['_check_dimension_count'] = _check_dimension_count
     namespace['check_dimension'] = _check_dimension
     namespace['check_literal_dimension'] = _check_literal_dimension

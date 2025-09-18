@@ -307,3 +307,58 @@ def test_mixed_explicit_and_inferred():
 
     error_msg = str(exc_info.value)
     assert "expected 4 (from x_NK)" in error_msg  # Should reference the inferred source
+
+class Model:
+    """Test class for property assignment shape checking."""
+    def __init__(self):
+        pass
+
+    @sizecheck
+    def property_assignment_correct(self, A_BL, B_LH):
+        """Test that property assignments with shape suffixes work correctly."""
+        # Matrix multiplication A_BL @ B_LH results in shape BH
+        self.inputs_BH = A_BL @ B_LH
+        return self.inputs_BH
+
+    @sizecheck
+    def property_assignment_mismatch(self, A_BL, B_LH):
+        """Test that property assignments catch shape mismatches."""
+        # This should raise an error because A_BL @ B_LH has shape BH, not BL
+        self.result_BL = A_BL @ B_LH
+        return self.result_BL
+
+    @sizecheck
+    def multiple_property_assignments(self, A_BL, B_LH, C_BH):
+        """Test multiple property assignments in one function."""
+        self.intermediate_BH = A_BL @ B_LH
+        self.final_BH = self.intermediate_BH + C_BH
+        return self.final_BH
+
+def test_property_assignment_works():
+    """Test that correct property assignment shapes work."""
+    model = Model()
+    A_BL = torch.randn(3, 4)  # B=3, L=4
+    B_LH = torch.randn(4, 5)  # L=4, H=5
+
+    result = model.property_assignment_correct(A_BL, B_LH)
+    assert result.shape == (3, 5)  # B=3, H=5
+
+@pytest.mark.xfail(reason="Expected property assignment shape mismatch", raises=AssertionError)
+def test_property_assignment_shape_mismatch():
+    """Test that property assignments catch shape mismatches."""
+    model = Model()
+    A_BL = torch.randn(3, 4)  # B=3, L=4
+    B_LH = torch.randn(4, 5)  # L=4, H=5
+
+    # This should fail because A_BL @ B_LH has shape BH, not BL
+    model.property_assignment_mismatch(A_BL, B_LH)
+
+def test_multiple_property_assignments_work():
+    """Test that multiple property assignments work correctly."""
+    model = Model()
+    A_BL = torch.randn(2, 3)  # B=2, L=3
+    B_LH = torch.randn(3, 4)  # L=3, H=4
+    C_BH = torch.randn(2, 4)  # B=2, H=4
+
+    result = model.multiple_property_assignments(A_BL, B_LH, C_BH)
+    assert result.shape == (2, 4)  # B=2, H=4
