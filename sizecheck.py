@@ -14,6 +14,19 @@ import textwrap
 from typing import Dict, List, Any, Union
 from itertools import chain
 
+def _quasiquote(template: str, **kwargs) -> ast.expr:
+    """Generic quasi-quotation function that parses string templates and substitutes values."""
+    tree = ast.parse(template, mode='eval')
+
+    class TemplateTransformer(ast.NodeTransformer):
+        def visit_Name(self, node):
+            if node.id in kwargs:
+                return kwargs[node.id]
+            return node
+
+    transformer = TemplateTransformer()
+    return transformer.visit(tree.body)
+
 def _extract_shape_dims(name: str) -> List[str]:
     """Extract shape dimensions from annotated variable name."""
     parts = name.split('_')
@@ -36,12 +49,10 @@ def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str]
     statements = []
 
     if isinstance(target, str):
-        # Handle regular variable
         var_name = target
         target_load = ast.Name(id=var_name, ctx=ast.Load())
         display_name = var_name
     else:
-        # Handle ast.Attribute (property)
         var_name = target.attr
         target_load = ast.Attribute(
             value=target.value,
@@ -50,66 +61,49 @@ def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str]
         )
         display_name = target.attr
 
-    # Check dimension count
+    # Check dimension count using quasi-quotation
     dim_count_check = ast.Expr(
-        value=ast.Call(
-            func=ast.Name(id='_check_dimension_count', ctx=ast.Load()),
-            args=[
-                target_load,
-                ast.Constant(value=len(dims)),
-                ast.Constant(value=display_name)
-            ],
-            keywords=[]
+        value=_quasiquote(
+            "_check_dimension_count(target, dim_count, display)",
+            target=target_load,
+            dim_count=ast.Constant(value=len(dims)),
+            display=ast.Constant(value=display_name)
         )
     )
     statements.append(dim_count_check)
 
     for i, dim in enumerate(dims):
-        # Create shape access: target.shape[i]
-        shape_access = ast.Subscript(
-            value=ast.Attribute(
-                value=target_load,
-                attr='shape',
-                ctx=ast.Load()
-            ),
-            slice=ast.Constant(value=i),
-            ctx=ast.Load()
+        shape_access = _quasiquote(
+            "target.shape[index]",
+            target=target_load,
+            index=ast.Constant(value=i)
         )
 
         if dim.isdigit():
-            # Numeric literal - check against constant
             check_expr = ast.Expr(
-                value=ast.Call(
-                    func=ast.Name(id='check_literal_dimension', ctx=ast.Load()),
-                    args=[
-                        shape_access,
-                        ast.Constant(value=int(dim)),
-                        ast.Constant(value=dim),
-                        ast.Constant(value=display_name)
-                    ],
-                    keywords=[]
+                value=_quasiquote(
+                    "_check_literal_dimension(shape, literal, dim_name, var_name)",
+                    shape=shape_access,
+                    literal=ast.Constant(value=int(dim)),
+                    dim_name=ast.Constant(value=dim),
+                    var_name=ast.Constant(value=display_name)
                 )
             )
             statements.append(check_expr)
         elif dim in first_vars and first_vars[dim] != var_name:
-            # Check dimension matches existing variable
             first_var_name = first_vars[dim] if first_vars[dim] is not None else "explicitly provided"
             check_expr = ast.Expr(
-                value=ast.Call(
-                    func=ast.Name(id='check_dimension', ctx=ast.Load()),
-                    args=[
-                        shape_access,
-                        ast.Name(id=dim, ctx=ast.Load()),
-                        ast.Constant(value=dim),
-                        ast.Constant(value=display_name),
-                        ast.Constant(value=first_var_name)
-                    ],
-                    keywords=[]
+                value=_quasiquote(
+                    "_check_dimension(shape, expected, dim_name, var_name, first_var)",
+                    shape=shape_access,
+                    expected=ast.Name(id=dim, ctx=ast.Load()),
+                    dim_name=ast.Constant(value=dim),
+                    var_name=ast.Constant(value=display_name),
+                    first_var=ast.Constant(value=first_var_name)
                 )
             )
             statements.append(check_expr)
         else:
-            # Assign dimension to variable (first time we see this dimension)
             assign = ast.Assign(
                 targets=[ast.Name(id=dim, ctx=ast.Store())],
                 value=shape_access
@@ -285,8 +279,8 @@ def sizecheck(func):
     code = compile(new_tree, filename=original_filename, mode='exec')
     namespace = func.__globals__
     namespace['_check_dimension_count'] = _check_dimension_count
-    namespace['check_dimension'] = _check_dimension
-    namespace['check_literal_dimension'] = _check_literal_dimension
+    namespace['_check_dimension'] = _check_dimension
+    namespace['_check_literal_dimension'] = _check_literal_dimension
     exec(code, namespace)
     return namespace[func.__name__]
 
