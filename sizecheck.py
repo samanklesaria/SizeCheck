@@ -25,41 +25,50 @@ def _extract_shape_dims(name: str) -> List[str]:
     else:
         return []
 
-def _create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[str, str], lineno: int = 1) -> List[ast.stmt]:
-    """Create statements for shape checking and dimension variable assignment."""
+def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str]) -> List[ast.stmt]:
+    """Create statements for shape checking and dimension variable assignment.
+
+    Args:
+        target: Either a string (variable name) or ast.Attribute (property)
+        dims: List of dimension names
+        first_vars: Dictionary tracking first occurrence of dimension variables
+    """
     statements = []
 
-    # Create if statement to check if tensor has shape attribute
-    if_test = ast.Call(
-        func=ast.Name(id='hasattr', ctx=ast.Load()),
-        args=[
-            ast.Name(id=var_name, ctx=ast.Load()),
-            ast.Constant(value='shape')
-        ],
-        keywords=[]
-    )
-
-    if_body = []
+    if isinstance(target, str):
+        # Handle regular variable
+        var_name = target
+        target_load = ast.Name(id=var_name, ctx=ast.Load())
+        display_name = var_name
+    else:
+        # Handle ast.Attribute (property)
+        var_name = target.attr
+        target_load = ast.Attribute(
+            value=target.value,
+            attr=target.attr,
+            ctx=ast.Load()
+        )
+        display_name = target.attr
 
     # Check dimension count
     dim_count_check = ast.Expr(
         value=ast.Call(
             func=ast.Name(id='_check_dimension_count', ctx=ast.Load()),
             args=[
-                ast.Name(id=var_name, ctx=ast.Load()),
+                target_load,
                 ast.Constant(value=len(dims)),
-                ast.Constant(value=var_name)
+                ast.Constant(value=display_name)
             ],
             keywords=[]
         )
     )
-    if_body.append(dim_count_check)
+    statements.append(dim_count_check)
 
     for i, dim in enumerate(dims):
-        # Create shape access: var_name.shape[i]
+        # Create shape access: target.shape[i]
         shape_access = ast.Subscript(
             value=ast.Attribute(
-                value=ast.Name(id=var_name, ctx=ast.Load()),
+                value=target_load,
                 attr='shape',
                 ctx=ast.Load()
             ),
@@ -76,12 +85,12 @@ def _create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[st
                         shape_access,
                         ast.Constant(value=int(dim)),
                         ast.Constant(value=dim),
-                        ast.Constant(value=var_name)
+                        ast.Constant(value=display_name)
                     ],
                     keywords=[]
                 )
             )
-            if_body.append(check_expr)
+            statements.append(check_expr)
         elif dim in first_vars and first_vars[dim] != var_name:
             # Check dimension matches existing variable
             first_var_name = first_vars[dim] if first_vars[dim] is not None else "explicitly provided"
@@ -92,30 +101,20 @@ def _create_check_shape_call(var_name: str, dims: List[str], first_vars: Dict[st
                         shape_access,
                         ast.Name(id=dim, ctx=ast.Load()),
                         ast.Constant(value=dim),
-                        ast.Constant(value=var_name),
+                        ast.Constant(value=display_name),
                         ast.Constant(value=first_var_name)
                     ],
                     keywords=[]
                 )
             )
-            if_body.append(check_expr)
+            statements.append(check_expr)
         else:
             # Assign dimension to variable (first time we see this dimension)
             assign = ast.Assign(
                 targets=[ast.Name(id=dim, ctx=ast.Store())],
                 value=shape_access
             )
-            if_body.append(assign)
-
-    # Create the if statement
-    if_stmt = ast.If(
-        test=if_test,
-        body=if_body,
-        orelse=[]
-    )
-    if_stmt.lineno = lineno
-    if_stmt.col_offset = 0
-    statements.append(if_stmt)
+            statements.append(assign)
 
     return statements
 
@@ -130,29 +129,25 @@ class _SizeCheckTransformer(ast.NodeTransformer):
         if isinstance(target, ast.Name):
             return [target.id]
         elif isinstance(target, (ast.Tuple, ast.List)):
-            names = []
-            for elt in target.elts:
-                names.extend(self.extract_names_from_target(elt))
-            return names
+            return chain.from_iterable([self.extract_names_from_target(elt) for elt in target.elts])
         elif isinstance(target, ast.Attribute):
             return [target.attr]
         else:
             return []
 
-    def is_potential_dimension_var(self, name: str) -> bool:
-        """Check if a name could be a dimension variable (single uppercase letter)."""
-        return len(name) == 1 and name.isupper()
+    def visit_Assign(self, node: ast.Assign) -> List[ast.stmt]:
+        return self.handle_assignment(node.targets, node)
 
-    def visit_Assign(self, node: ast.Assign) -> Union[ast.Assign, List[ast.stmt]]:
+    def handle_assignment(self, targets: List[ast.expr], node: ast.Assign) -> List[ast.stmt]:
         """Transform assignment nodes to add shape checks."""
         node = self.generic_visit(node)  # type: ignore
         new_nodes: List[ast.stmt] = [node]
 
-        for target in node.targets:
+        for target in targets:
             names = self.extract_names_from_target(target)
             for name in names:
                 # Check if this is an explicit assignment to a dimension variable
-                if self.is_potential_dimension_var(name):
+                if len(name) == 1 and name.isupper():
                     if name in self.first_vars and self.first_vars[name] is not None:
                         # Error: assigning to dimension variable after it's been used
                         error_stmt = ast.Raise(
@@ -163,8 +158,6 @@ class _SizeCheckTransformer(ast.NodeTransformer):
                             ),
                             cause=None
                         )
-                        error_stmt.lineno = node.lineno
-                        error_stmt.col_offset = 0
                         new_nodes.append(error_stmt)
                     elif name not in self.first_vars:
                         # Mark as explicitly provided
@@ -178,158 +171,17 @@ class _SizeCheckTransformer(ast.NodeTransformer):
                             self.first_vars[dim] = name
 
                     if isinstance(target, ast.Attribute):
-                        # For property assignments, check the property after assignment
-                        check_nodes = self._create_property_check_shape_call(target, dims, self.first_vars, node.lineno)
+                        # For property assignments, pass the ast.Attribute directly
+                        check_nodes = _create_check_shape_call(target, dims, self.first_vars)
                     else:
-                        # For regular variables, use existing logic
-                        check_nodes = _create_check_shape_call(name, dims, self.first_vars, node.lineno)
-
+                        # For regular variables, pass the variable name
+                        check_nodes = _create_check_shape_call(name, dims, self.first_vars)
                     new_nodes.extend(check_nodes)
 
-        if len(new_nodes) > 1:
-            return new_nodes
-        else:
-            return node
+        return new_nodes
 
-    def _create_property_check_shape_call(self, target: ast.Attribute, dims: List[str], first_vars: Dict[str, str], lineno: int = 1) -> List[ast.stmt]:
-        """Create statements for shape checking property assignments."""
-        statements = []
-
-        # Create a Load version of the target for reading
-        target_load = ast.Attribute(
-            value=target.value,
-            attr=target.attr,
-            ctx=ast.Load()
-        )
-
-        # Create if statement to check if property has shape attribute
-        if_test = ast.Call(
-            func=ast.Name(id='hasattr', ctx=ast.Load()),
-            args=[
-                target_load,
-                ast.Constant(value='shape')
-            ],
-            keywords=[]
-        )
-
-        if_body = []
-
-        # Check dimension count
-        dim_count_check = ast.Expr(
-            value=ast.Call(
-                func=ast.Name(id='_check_dimension_count', ctx=ast.Load()),
-                args=[
-                    target_load,
-                    ast.Constant(value=len(dims)),
-                    ast.Constant(value=target.attr)
-                ],
-                keywords=[]
-            )
-        )
-        if_body.append(dim_count_check)
-
-        for i, dim in enumerate(dims):
-            # Create shape access: target.shape[i]
-            shape_access = ast.Subscript(
-                value=ast.Attribute(
-                    value=target_load,
-                    attr='shape',
-                    ctx=ast.Load()
-                ),
-                slice=ast.Constant(value=i),
-                ctx=ast.Load()
-            )
-
-            if dim.isdigit():
-                # Numeric literal - check against constant
-                check_expr = ast.Expr(
-                    value=ast.Call(
-                        func=ast.Name(id='check_literal_dimension', ctx=ast.Load()),
-                        args=[
-                            shape_access,
-                            ast.Constant(value=int(dim)),
-                            ast.Constant(value=dim),
-                            ast.Constant(value=target.attr)
-                        ],
-                        keywords=[]
-                    )
-                )
-                if_body.append(check_expr)
-            elif dim in first_vars and first_vars[dim] != target.attr:
-                # Check dimension matches existing variable
-                first_var_name = first_vars[dim] if first_vars[dim] is not None else "explicitly provided"
-                check_expr = ast.Expr(
-                    value=ast.Call(
-                        func=ast.Name(id='check_dimension', ctx=ast.Load()),
-                        args=[
-                            shape_access,
-                            ast.Name(id=dim, ctx=ast.Load()),
-                            ast.Constant(value=dim),
-                            ast.Constant(value=target.attr),
-                            ast.Constant(value=first_var_name)
-                        ],
-                        keywords=[]
-                    )
-                )
-                if_body.append(check_expr)
-            else:
-                # Assign dimension to variable (first time we see this dimension)
-                assign = ast.Assign(
-                    targets=[ast.Name(id=dim, ctx=ast.Store())],
-                    value=shape_access
-                )
-                if_body.append(assign)
-
-        # Create the if statement
-        if_stmt = ast.If(
-            test=if_test,
-            body=if_body,
-            orelse=[]
-        )
-        if_stmt.lineno = lineno
-        if_stmt.col_offset = 0
-        statements.append(if_stmt)
-
-        return statements
-
-    def visit_AnnAssign(self, node: ast.AnnAssign) -> Union[ast.AnnAssign, List[ast.stmt]]:
-        """Handle annotated assignments."""
-        node = self.generic_visit(node)  # type: ignore
-        names = self.extract_names_from_target(node.target)
-        check_nodes: List[ast.stmt] = []
-
-        for name in names:
-            # Check if this is an explicit assignment to a dimension variable
-            if self.is_potential_dimension_var(name):
-                if name in self.first_vars and self.first_vars[name] is not None:
-                    # Error: assigning to dimension variable after it's been used
-                    error_stmt = ast.Raise(
-                        exc=ast.Call(
-                            func=ast.Name(id='ValueError', ctx=ast.Load()),
-                            args=[ast.Constant(value=f"Cannot assign to dimension variable '{name}' after it has been used in shape annotations")],
-                            keywords=[]
-                        ),
-                        cause=None
-                    )
-                    error_stmt.lineno = node.lineno
-                    error_stmt.col_offset = 0
-                    check_nodes.append(error_stmt)
-                elif name not in self.first_vars:
-                    # Mark as explicitly provided
-                    self.first_vars[name] = None
-
-            # Handle shape-annotated variables
-            dims = _extract_shape_dims(name)
-            if dims:
-                for dim in dims:
-                    if dim not in self.first_vars and not dim.isdigit():
-                        self.first_vars[dim] = name
-                check_nodes.extend(_create_check_shape_call(name, dims, self.first_vars, node.lineno))
-
-        if check_nodes:
-            return [node] + check_nodes
-        else:
-            return node
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> List[ast.stmt]:
+        return self.handle_assignment([node.target], node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Transform function definition to add argument checks."""
@@ -338,13 +190,14 @@ class _SizeCheckTransformer(ast.NodeTransformer):
         # Check arguments
         for arg in chain(node.args.args, node.args.kwonlyargs):
             dims = _extract_shape_dims(arg.arg)
-            for dim in dims:
-                if dim not in self.first_vars and not dim.isdigit():
-                    self.first_vars[dim] = arg.arg
-            arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node.lineno))
+            if dims:
+                for dim in dims:
+                    if dim not in self.first_vars and not dim.isdigit():
+                        self.first_vars[dim] = arg.arg
+                arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars))
 
         # Transform the function body
-        self.generic_visit(node)
+        node = self.generic_visit(node)
 
         # Insert argument checks at the beginning
         node.body = arg_checks + node.body
