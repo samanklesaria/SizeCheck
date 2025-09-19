@@ -1,12 +1,14 @@
 import torch
 import pytest
+import numpy as np
 from sizecheck import sizecheck
 
 @sizecheck
 def matrix_operations(A_NK, B_KM, C_NM):
     """Matrix operations with comprehensive shape checking."""
-    intermediate_NM = torch.matmul(A_NK, B_KM)
+    intermediate_NM = A_NK @ B_KM
     return intermediate_NM
+
 
 @sizecheck
 def transformer_attention(queries_BSH, keys_BSH, values_BSH):
@@ -32,10 +34,15 @@ def test_destructuring_function():
 
 def test_matrix_operations():
     """Test matrix operations."""
-    print("1. Matrix operations...")
     A_NK = torch.randn(3, 4)
     B_KM = torch.randn(4, 5)
     C_NM = torch.randn(3, 5)
+    matrix_operations(A_NK, B_KM, C_NM)
+
+def test_numpy_matrix_operations():
+    A_NK = np.random.rand(3, 4)
+    B_KM = np.random.rand(4, 5)
+    C_NM = np.random.rand(3, 5)
     matrix_operations(A_NK, B_KM, C_NM)
 
 def test_transformer_attention():
@@ -47,7 +54,6 @@ def test_transformer_attention():
 
 class LinearLayer:
     """Test class with shape-checked method."""
-
     @sizecheck
     def forward(self, input_BH, weight_HO):
         """Forward pass with shape checking."""
