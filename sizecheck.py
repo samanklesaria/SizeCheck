@@ -11,7 +11,8 @@ their annotated shapes at runtime.
 import ast
 import inspect
 import textwrap
-from typing import Dict, List, Any, Union
+from typing import Dict, List, Any
+from collections.abc import Iterable
 from itertools import chain
 
 def _quasiquote(template: str, **kwargs) -> ast.expr:
@@ -38,7 +39,7 @@ def _extract_shape_dims(name: str) -> List[str]:
     else:
         return []
 
-def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str]) -> List[ast.stmt]:
+def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str], original_node: ast.AST) -> List[ast.stmt]:
     """Create statements for shape checking and dimension variable assignment.
 
     Args:
@@ -110,15 +111,22 @@ def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str]
             )
             statements.append(assign)
 
+    # Copy location information from the original node to all generated statements
+    for stmt in statements:
+        ast.copy_location(stmt, original_node)
+        for child in ast.walk(stmt):
+            if not hasattr(child, 'lineno'):
+                ast.copy_location(child, original_node)
+
     return statements
 
 class _SizeCheckTransformer(ast.NodeTransformer):
     """AST transformer that injects shape checking code."""
 
     def __init__(self):
-        self.first_vars = {}  # Maps dimension names to first variable using them
+        self.first_vars : dict[str, str] = {}  # Maps dimension names to first variable using them
 
-    def extract_names_from_target(self, target):
+    def extract_names_from_target(self, target) -> Iterable[str]:
         """Recursively extract all names from assignment targets."""
         if isinstance(target, ast.Name):
             return [target.id]
@@ -150,8 +158,8 @@ class _SizeCheckTransformer(ast.NodeTransformer):
                                 args=[ast.Constant(value=f"Cannot assign to dimension variable '{name}' after it has been used in shape annotations")],
                                 keywords=[]
                             ),
-                            cause=None
-                        )
+                            cause=None)
+                        ast.copy_location(error_stmt, node)
                         new_nodes.append(error_stmt)
                     elif name not in self.first_vars:
                         # Mark as explicitly provided
@@ -166,10 +174,11 @@ class _SizeCheckTransformer(ast.NodeTransformer):
 
                     if isinstance(target, ast.Attribute):
                         # For property assignments, pass the ast.Attribute directly
-                        check_nodes = _create_check_shape_call(target, dims, self.first_vars)
+                        check_nodes = _create_check_shape_call(target, dims, self.first_vars, node)
                     else:
                         # For regular variables, pass the variable name
-                        check_nodes = _create_check_shape_call(name, dims, self.first_vars)
+                        check_nodes = _create_check_shape_call(name, dims, self.first_vars, node)
+
                     new_nodes.extend(check_nodes)
 
         return new_nodes
@@ -188,7 +197,7 @@ class _SizeCheckTransformer(ast.NodeTransformer):
                 for dim in dims:
                     if dim not in self.first_vars and not dim.isdigit():
                         self.first_vars[dim] = arg.arg
-                arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars))
+                arg_checks.extend(_create_check_shape_call(arg.arg, dims, self.first_vars, node))
 
         # Transform the function body
         node = self.generic_visit(node)
@@ -271,10 +280,11 @@ def sizecheck(func):
     tree = ast.parse(source)
     if tree.body and isinstance(tree.body[0], ast.FunctionDef):
         tree.body[0].decorator_list.pop(0)
-    # Adjust line numbers in the parsed tree
-    ast.increment_lineno(tree, original_lineno - 1)
     transformer = _SizeCheckTransformer()
     new_tree = transformer.visit(tree)
+
+    # Adjust line numbers and fix missing locations
+    ast.increment_lineno(new_tree, original_lineno - 1)
     ast.fix_missing_locations(new_tree)
     code = compile(new_tree, filename=original_filename, mode='exec')
     namespace = func.__globals__

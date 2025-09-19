@@ -362,3 +362,51 @@ def test_multiple_property_assignments_work():
 
     result = model.multiple_property_assignments(A_BL, B_LH, C_BH)
     assert result.shape == (2, 4)  # B=2, H=4
+
+def test_error_line_numbers():
+    """Test that errors thrown by generated code have reasonable line numbers."""
+    import traceback
+    import inspect
+
+    @sizecheck
+    def test_function_with_error():
+        x_NK = torch.randn(3, 4)  # N=3, K=4
+        y_KM = torch.randn(2, 5)  # ERROR: K should be 4, not 2
+        return x_NK, y_KM
+
+    try:
+        test_function_with_error()
+        assert False, "Expected AssertionError was not raised"
+    except AssertionError as e:
+        # Get the traceback to check line numbers
+        tb = traceback.extract_tb(e.__traceback__)
+
+        # Find the frame that corresponds to our test function
+        error_frame = None
+        for frame in tb:
+            if frame.name == 'test_function_with_error':
+                error_frame = frame
+                break
+
+        assert error_frame is not None, f"Could not find error frame in traceback: {[f.name for f in tb]}"
+
+        # Get the function's starting line for reference
+        func_start_line = inspect.getsourcelines(test_function_with_error)[1]
+        actual_line = error_frame.lineno
+
+        # The error should be reasonably close to the function definition
+        # Currently the generated code may not have perfect line numbers,
+        # but it should be within a reasonable range of the function
+        line_diff = abs(actual_line - func_start_line)
+
+        assert line_diff <= 5, (
+            f"Error line {actual_line} is too far from function start line {func_start_line}. "
+            f"Difference: {line_diff}. This suggests line numbers are completely wrong."
+        )
+
+        # Verify the error message mentions the correct variable and dimension
+        error_msg = str(e)
+        assert "y_KM" in error_msg, f"Error message should mention 'y_KM': {error_msg}"
+        assert "dimension K" in error_msg, f"Error message should mention 'dimension K': {error_msg}"
+        assert "expected 4" in error_msg, f"Error message should mention 'expected 4': {error_msg}"
+        assert "got 2" in error_msg, f"Error message should mention 'got 2': {error_msg}"
