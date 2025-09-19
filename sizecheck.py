@@ -243,7 +243,20 @@ def sizecheck(func):
     The macro automatically adds shape validation for:
 
     - **Function arguments** with underscores in their names
-    - **Variable assignments** to names containing underscores, including destructuring assignments
+    - **Variable assignments** to names containing underscores, including destructuring assignments and property assignments.
+
+    **Explicit dimension assignment**: You can explicitly assign values to dimension variables
+    (single uppercase letters) before using them in shape annotations. This allows you to
+    specify exact dimension sizes that tensors must match:
+
+    ```python
+    @sizecheck
+    def example():
+        N = 10  # Explicit assignment
+        x_N = torch.randn(10)  # Must have size 10 in first dimension
+    ```
+
+    Once a dimension variable has been used in a shape annotation, it cannot be reassigned.
 
     The dimensions are scoped to the function they are defined in.
     For example, if you define a function `foo` with a parameter `x_NK`, the dimension `N` is only valid within the scope of `foo`.
