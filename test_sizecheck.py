@@ -416,3 +416,68 @@ def test_error_line_numbers():
         assert "dimension K" in error_msg, f"Error message should mention 'dimension K': {error_msg}"
         assert "expected 4" in error_msg, f"Error message should mention 'expected 4': {error_msg}"
         assert "got 2" in error_msg, f"Error message should mention 'got 2': {error_msg}"
+
+def test_assignment_error_exact_line():
+    """Test that assignment errors report the exact line of the assignment, not the function start.
+
+    This test verifies that when sizecheck generates an error for an invalid assignment,
+    the traceback points to the specific line with the problematic assignment, not just
+    the start of the function definition. This is crucial for debugging, as it allows
+    users to immediately identify which assignment is causing the shape mismatch.
+    """
+    import traceback
+    import inspect
+
+    @sizecheck
+    def test_function_with_multiple_assignments():
+        # Line 1: This assignment is fine
+        x_NK = torch.randn(3, 4)  # N=3, K=4
+
+        # Line 3: Some other code
+        temp = x_NK * 2
+
+        # Line 5: THIS IS THE LINE THAT SHOULD BE REPORTED IN THE ERROR
+        y_KM = torch.randn(2, 5)  # ERROR: K should be 4, not 2
+
+        return x_NK, y_KM
+
+    try:
+        test_function_with_multiple_assignments()
+        assert False, "Expected AssertionError was not raised"
+    except AssertionError as e:
+        tb = traceback.extract_tb(e.__traceback__)
+
+        # Find the frame in our test function
+        error_frame = None
+        for frame in tb:
+            if frame.name == 'test_function_with_multiple_assignments':
+                error_frame = frame
+                break
+
+        assert error_frame is not None, f"Could not find error frame in traceback"
+
+        # The error line reported in the traceback
+        actual_line = error_frame.lineno
+
+        # Expected line numbers based on the source code above:
+        # Line 432: def test_function_with_multiple_assignments():
+        # Line 434:     x_NK = torch.randn(3, 4)
+        # Line 440:     y_KM = torch.randn(2, 5)  # This is where the error occurs
+        func_def_line = 432
+        y_km_assignment_line = 440
+
+        # CRITICAL: The error should point to the y_KM assignment line, NOT the function definition
+        # This is the main assertion - errors should report the exact line of the invalid assignment
+        assert actual_line != func_def_line, (
+            f"Error line {actual_line} incorrectly points to function definition at line {func_def_line}, "
+            f"but should point to the assignment at line {y_km_assignment_line}. "
+            f"Users need to know which specific assignment is wrong, not just that the function has an error."
+        )
+
+        # The error should be reasonably close to the assignment line (within 2 lines)
+        # This allows for minor implementation details but ensures we're pointing to the right area
+        line_diff = abs(actual_line - y_km_assignment_line)
+        assert line_diff <= 2, (
+            f"Error line {actual_line} is too far from assignment line {y_km_assignment_line}. "
+            f"Difference: {line_diff}. Error should point to or very near the problematic assignment."
+        )

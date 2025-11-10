@@ -16,7 +16,11 @@ from collections.abc import Iterable
 from itertools import chain
 
 def _quasiquote(template: str, **kwargs) -> ast.expr:
-    """Generic quasi-quotation function that parses string templates and substitutes values."""
+    """Generic quasi-quotation function that parses string templates and substitutes values.
+
+    Note: The returned expression will not have line numbers set. Callers should copy
+    location information to the result.
+    """
     tree = ast.parse(template, mode='eval')
 
     class TemplateTransformer(ast.NodeTransformer):
@@ -26,7 +30,15 @@ def _quasiquote(template: str, **kwargs) -> ast.expr:
             return node
 
     transformer = TemplateTransformer()
-    return transformer.visit(tree.body)
+    result = transformer.visit(tree.body)
+    # Clear line numbers from the template - callers will set them properly
+    for node in ast.walk(result):
+        for attr in ('lineno', 'col_offset', 'end_lineno', 'end_col_offset'):
+            try:
+                delattr(node, attr)
+            except AttributeError:
+                pass
+    return result
 
 def _extract_shape_dims(name: str) -> List[str]:
     """Extract shape dimensions from annotated variable name."""
@@ -111,12 +123,12 @@ def _create_check_shape_call(target, dims: List[str], first_vars: Dict[str, str]
             )
             statements.append(assign)
 
-    # Copy location information from the original node to all generated statements
+    # Copy location information from the original node to all generated statements and their children
     for stmt in statements:
         ast.copy_location(stmt, original_node)
+        # Ensure ALL child nodes have the same location - this is critical for correct tracebacks
         for child in ast.walk(stmt):
-            if not hasattr(child, 'lineno'):
-                ast.copy_location(child, original_node)
+            ast.copy_location(child, original_node)
 
     return statements
 
@@ -290,16 +302,39 @@ def sizecheck(func):
     source = textwrap.dedent(inspect.getsource(func))
     original_filename = inspect.getfile(func)
     original_lineno = inspect.getsourcelines(func)[1]
+
+    # Count decorators in the original source to calculate the function def line
     tree = ast.parse(source)
+    decorator_count = 0
     if tree.body and isinstance(tree.body[0], ast.FunctionDef):
-        tree.body[0].decorator_list.pop(0)
+        decorator_count = len(tree.body[0].decorator_list)
+
+    # Remove decorator lines from source before parsing to avoid line number mismatches
+    source_lines = source.split('\n')
+    # Skip decorator lines (they start with @)
+    func_start_idx = 0
+    for i, line in enumerate(source_lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith('@') and not stripped.startswith('#'):
+            func_start_idx = i
+            break
+
+    # Reconstruct source without decorators
+    source_without_decorators = '\n'.join(source_lines[func_start_idx:])
+
+    # Parse the decorator-free source
+    tree = ast.parse(source_without_decorators)
     transformer = _SizeCheckTransformer()
     new_tree = transformer.visit(tree)
 
-    # Adjust line numbers and fix missing locations
-    ast.increment_lineno(new_tree, original_lineno - 1)
+    # Adjust line numbers: original_lineno points to first decorator (or def if no decorators)
+    # Since we removed decorators from source, function def is now at line 1 in parsed AST
+    # We want it to be at original_lineno + decorator_count in the final bytecode
+    function_def_line = original_lineno + decorator_count
+    ast.increment_lineno(new_tree, function_def_line - 1)
     ast.fix_missing_locations(new_tree)
     code = compile(new_tree, filename=original_filename, mode='exec')
+
     namespace = func.__globals__
     namespace['_check_dimension_count'] = _check_dimension_count
     namespace['_check_dimension'] = _check_dimension
