@@ -441,6 +441,13 @@ def test_assignment_error_exact_line():
 
         return x_NK, y_KM
 
+    # Get the function definition line using inspect
+    func_def_line = inspect.getsourcelines(test_function_with_multiple_assignments)[1]
+
+    # Calculate the y_KM assignment line as an offset from the function definition
+    # Counting from def line: def (0), blank+comment+x_NK (+2), blank+comment+temp (+2), blank+comment+y_KM (+2) = +6
+    y_km_assignment_line = func_def_line + 8
+
     try:
         test_function_with_multiple_assignments()
         assert False, "Expected AssertionError was not raised"
@@ -459,13 +466,6 @@ def test_assignment_error_exact_line():
         # The error line reported in the traceback
         actual_line = error_frame.lineno
 
-        # Expected line numbers based on the source code above:
-        # Line 432: def test_function_with_multiple_assignments():
-        # Line 434:     x_NK = torch.randn(3, 4)
-        # Line 440:     y_KM = torch.randn(2, 5)  # This is where the error occurs
-        func_def_line = 432
-        y_km_assignment_line = 440
-
         # CRITICAL: The error should point to the y_KM assignment line, NOT the function definition
         # This is the main assertion - errors should report the exact line of the invalid assignment
         assert actual_line != func_def_line, (
@@ -474,10 +474,4 @@ def test_assignment_error_exact_line():
             f"Users need to know which specific assignment is wrong, not just that the function has an error."
         )
 
-        # The error should be reasonably close to the assignment line (within 2 lines)
-        # This allows for minor implementation details but ensures we're pointing to the right area
-        line_diff = abs(actual_line - y_km_assignment_line)
-        assert line_diff <= 2, (
-            f"Error line {actual_line} is too far from assignment line {y_km_assignment_line}. "
-            f"Difference: {line_diff}. Error should point to or very near the problematic assignment."
-        )
+        assert actual_line == y_km_assignment_line
